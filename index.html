@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard de Asistencia — Iglesia</title>
+
+  <!-- Google Fonts: Bebas Neue (display) + Outfit (body) -->
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet" />
+
+  <!-- Bootstrap Icons -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ============================================================
+     TOPBAR
+============================================================ -->
+<header class="topbar d-flex align-items-center justify-content-between px-4">
+  <div class="d-flex align-items-center gap-3">
+    <div class="brand-icon"><i class="bi bi-cross-fill"></i></div>
+    <div>
+      <div class="brand-title">DASHBOARD IGLESIA</div>
+      <div class="brand-sub" id="reportTitle">Cargue un archivo para comenzar</div>
+    </div>
+  </div>
+
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+
+    <!-- Toggle excluidos -->
+    <div class="excl-toggle d-flex align-items-center gap-2">
+      <span class="toggle-label">Incluir Excluidos</span>
+      <div class="form-check form-switch mb-0">
+        <input class="form-check-input toggle-excl" type="checkbox" id="toggleExcluidos" role="switch" />
+      </div>
+    </div>
+
+    <!-- Google Sheets Sync -->
+    <button class="btn-gsheets" id="btnGsheets" title="Conectar Google Sheets">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="me-2">
+        <path d="M19.5 3h-3V1.5A1.5 1.5 0 0 0 15 0H9a1.5 1.5 0 0 0-1.5 1.5V3h-3A1.5 1.5 0 0 0 3 4.5v18A1.5 1.5 0 0 0 4.5 24h15a1.5 1.5 0 0 0 1.5-1.5v-18A1.5 1.5 0 0 0 19.5 3ZM9 1.5h6V3H9Zm4.5 16.5H7.5V16.5h6Zm0-3H7.5V13.5h6Zm3 3H15V16.5h1.5Zm0-3H15V13.5h1.5Zm0-3H7.5V10.5h9Zm0-3H7.5V7.5h9Z"/>
+      </svg>
+      Google Sheets
+      <span class="gsheet-status" id="gsheetStatus"></span>
+    </button>
+
+    <!-- Cargar archivo -->
+    <label class="btn-upload" for="fileInput">
+      <i class="bi bi-upload me-2"></i>Cargar Excel
+    </label>
+    <input type="file" id="fileInput" accept=".xlsx,.xlsm" hidden />
+  </div>
+</header>
+
+<!-- ============================================================
+     MODAL GOOGLE SHEETS
+============================================================ -->
+<div class="modal fade" id="gsheetsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content gsheet-modal-content">
+
+      <div class="gsheet-modal-header">
+        <div class="d-flex align-items-center gap-3">
+          <div class="gsheet-modal-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19.5 3h-3V1.5A1.5 1.5 0 0 0 15 0H9a1.5 1.5 0 0 0-1.5 1.5V3h-3A1.5 1.5 0 0 0 3 4.5v18A1.5 1.5 0 0 0 4.5 24h15a1.5 1.5 0 0 0 1.5-1.5v-18A1.5 1.5 0 0 0 19.5 3ZM9 1.5h6V3H9Zm4.5 16.5H7.5V16.5h6Zm0-3H7.5V13.5h6Zm3 3H15V16.5h1.5Zm0-3H15V13.5h1.5Zm0-3H7.5V10.5h9Zm0-3H7.5V7.5h9Z"/>
+            </svg>
+          </div>
+          <div>
+            <div class="gsheet-modal-title">Conectar Google Sheets</div>
+            <div class="gsheet-modal-sub">Sincronización en tiempo real con tu hoja de cálculo</div>
+          </div>
+        </div>
+        <button type="button" class="gsheet-close" data-bs-dismiss="modal">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <div class="gsheet-modal-body">
+
+        <!-- Instrucciones paso a paso -->
+        <div class="gsheet-steps">
+          <div class="gsheet-step">
+            <div class="step-num">1</div>
+            <div class="step-text">Abre tu Google Sheets → <strong>Archivo → Compartir → Publicar en la web</strong></div>
+          </div>
+          <div class="gsheet-step">
+            <div class="step-num">2</div>
+            <div class="step-text">Selecciona la hoja que contiene el reporte, formato <strong>Valores separados por comas (.csv)</strong> y haz clic en <strong>Publicar</strong></div>
+          </div>
+          <div class="gsheet-step">
+            <div class="step-num">3</div>
+            <div class="step-text">Copia el enlace generado y pégalo abajo. También puedes pegar el enlace normal de tu hoja y lo convertimos automáticamente.</div>
+          </div>
+        </div>
+
+        <!-- Modo de link -->
+        <div class="gsheet-mode-tabs" id="gsheetModeTabs">
+          <button class="gsheet-mode-tab active" data-mode="csv">Enlace CSV publicado</button>
+          <button class="gsheet-mode-tab" data-mode="url">URL normal de la hoja</button>
+        </div>
+
+        <!-- Input CSV publicado -->
+        <div id="gsheetInputCsv" class="gsheet-input-group">
+          <label class="gsheet-label">Enlace CSV (desde "Publicar en la web")</label>
+          <div class="gsheet-row">
+            <input type="url" id="gsheetCsvUrl" class="gsheet-input"
+              placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv&gid=..." />
+          </div>
+        </div>
+
+        <!-- Input URL normal -->
+        <div id="gsheetInputUrl" class="gsheet-input-group d-none">
+          <label class="gsheet-label">URL de Google Sheets (se convertirá automáticamente)</label>
+          <div class="gsheet-row">
+            <input type="url" id="gsheetNormalUrl" class="gsheet-input"
+              placeholder="https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit#gid=0" />
+          </div>
+          <div class="gsheet-hint">
+            <i class="bi bi-info-circle me-1"></i>
+            La hoja debe estar configurada como <strong>acceso público</strong> (Ver) para que funcione sin publicar.
+          </div>
+        </div>
+
+        <!-- Intervalo de sincronización -->
+        <div class="gsheet-sync-row">
+          <label class="gsheet-label">Sincronizar cada</label>
+          <div class="d-flex gap-2 align-items-center flex-wrap mt-2">
+            <label class="sync-interval-opt">
+              <input type="radio" name="syncInterval" value="30" /> 30 seg
+            </label>
+            <label class="sync-interval-opt active">
+              <input type="radio" name="syncInterval" value="60" checked /> 1 min
+            </label>
+            <label class="sync-interval-opt">
+              <input type="radio" name="syncInterval" value="300" /> 5 min
+            </label>
+            <label class="sync-interval-opt">
+              <input type="radio" name="syncInterval" value="600" /> 10 min
+            </label>
+            <label class="sync-interval-opt">
+              <input type="radio" name="syncInterval" value="0" /> Manual
+            </label>
+          </div>
+        </div>
+
+        <!-- Estado actual de la conexión -->
+        <div class="gsheet-conn-status d-none" id="gsheetConnStatus">
+          <div class="conn-dot" id="connDot"></div>
+          <div class="conn-text">
+            <span id="connLabel">Desconectado</span>
+            <span id="connLastSync" class="conn-last"></span>
+          </div>
+          <button class="btn-sync-now" id="btnSyncNow">
+            <i class="bi bi-arrow-repeat"></i> Sincronizar ahora
+          </button>
+        </div>
+
+        <!-- Mensaje de error -->
+        <div class="gsheet-error d-none" id="gsheetError">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>
+          <span id="gsheetErrorMsg">Error al conectar</span>
+        </div>
+
+      </div><!-- /modal-body -->
+
+      <div class="gsheet-modal-footer">
+        <button class="btn-gsheet-cancel" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn-gsheet-disconnect d-none" id="btnDisconnect">
+          <i class="bi bi-plug-fill me-1"></i>Desconectar
+        </button>
+        <button class="btn-gsheet-connect" id="btnConnectSheet">
+          <i class="bi bi-link-45deg me-2"></i>Conectar y Sincronizar
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     LOADING OVERLAY
+============================================================ -->
+<div id="loadingOverlay" class="loading-overlay d-none">
+  <div class="loading-content">
+    <div class="loading-cross"><i class="bi bi-cross-fill"></i></div>
+    <div class="loading-text">Procesando datos…</div>
+    <div class="loading-bar"><div class="loading-fill"></div></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     EMPTY STATE
+============================================================ -->
+<div id="emptyState" class="empty-state">
+  <div class="empty-icon"><i class="bi bi-bar-chart-fill"></i></div>
+  <div class="empty-title">Sin datos cargados</div>
+  <div class="empty-sub">Conecta una fuente de datos para visualizar el reporte de asistencia</div>
+
+  <div class="empty-options mt-5">
+    <!-- Opción 1: Excel -->
+    <div class="empty-option">
+      <div class="empty-opt-icon" style="color:var(--success)">
+        <i class="bi bi-file-earmark-spreadsheet-fill" style="font-size:40px"></i>
+      </div>
+      <div class="empty-opt-title">Archivo Excel</div>
+      <div class="empty-opt-desc">Carga tu reporte .xlsx o .xlsm desde tu computadora</div>
+      <label class="btn-upload-lg mt-3" for="fileInput">
+        <i class="bi bi-upload me-2"></i>Seleccionar Archivo
+      </label>
+    </div>
+
+    <div class="empty-divider">ó</div>
+
+    <!-- Opción 2: Google Sheets -->
+    <div class="empty-option">
+      <div class="empty-opt-icon" style="color:#34a853">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19.5 3h-3V1.5A1.5 1.5 0 0 0 15 0H9a1.5 1.5 0 0 0-1.5 1.5V3h-3A1.5 1.5 0 0 0 3 4.5v18A1.5 1.5 0 0 0 4.5 24h15a1.5 1.5 0 0 0 1.5-1.5v-18A1.5 1.5 0 0 0 19.5 3ZM9 1.5h6V3H9Zm4.5 16.5H7.5V16.5h6Zm0-3H7.5V13.5h6Zm3 3H15V16.5h1.5Zm0-3H15V13.5h1.5Zm0-3H7.5V10.5h9Zm0-3H7.5V7.5h9Z"/>
+        </svg>
+      </div>
+      <div class="empty-opt-title">Google Sheets en Vivo</div>
+      <div class="empty-opt-desc">Sincroniza en tiempo real con tu hoja de Google Sheets publicada</div>
+      <button class="btn-gsheets-lg mt-3" id="btnGsheetsEmpty">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" class="me-2" style="flex-shrink:0">
+          <path d="M19.5 3h-3V1.5A1.5 1.5 0 0 0 15 0H9a1.5 1.5 0 0 0-1.5 1.5V3h-3A1.5 1.5 0 0 0 3 4.5v18A1.5 1.5 0 0 0 4.5 24h15a1.5 1.5 0 0 0 1.5-1.5v-18A1.5 1.5 0 0 0 19.5 3ZM9 1.5h6V3H9Zm4.5 16.5H7.5V16.5h6Zm0-3H7.5V13.5h6Zm3 3H15V16.5h1.5Zm0-3H15V13.5h1.5Zm0-3H7.5V10.5h9Zm0-3H7.5V7.5h9Z"/>
+        </svg>
+        Conectar Google Sheets
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MAIN DASHBOARD CONTENT
+============================================================ -->
+<main id="dashboardContent" class="dashboard-content d-none">
+
+  <!-- ── FILTROS ── -->
+  <section class="filters-bar px-4 py-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="filter-label">Grupo Ministerial</label>
+        <select id="filterGroup" class="filter-select">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="filter-label">Estado</label>
+        <select id="filterEstado" class="filter-select">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="filter-label">Célula</label>
+        <select id="filterCelula" class="filter-select">
+          <option value="">Todos</option>
+          <option value="SI">SI</option>
+          <option value="NO">NO</option>
+          <option value="NUEVO">NUEVO</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="filter-label">Servicio</label>
+        <select id="filterServicio" class="filter-select">
+          <option value="">Todos</option>
+          <option value="SI">SI</option>
+          <option value="NO">NO</option>
+          <option value="NUEVO">NUEVO</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="filter-label">Nuevo</label>
+        <select id="filterNuevo" class="filter-select">
+          <option value="">Todos</option>
+          <option value="si">Sólo Nuevos</option>
+          <option value="no">Sin Nuevos</option>
+        </select>
+      </div>
+      <div class="col-auto ms-auto">
+        <button class="btn-filter-reset" id="btnResetFilters">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Limpiar
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── KPI CARDS ── -->
+  <section class="kpi-section px-4 pt-2 pb-3">
+    <div class="row g-3">
+
+      <!-- KPI: Total registrados -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-primary">
+          <div class="kpi-icon"><i class="bi bi-people-fill"></i></div>
+          <div class="kpi-value" id="kpiTotal">—</div>
+          <div class="kpi-label">Total Registrados</div>
+        </div>
+      </div>
+
+      <!-- KPI: Asistencia célula -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-success">
+          <div class="kpi-icon"><i class="bi bi-house-heart-fill"></i></div>
+          <div class="kpi-value" id="kpiCelulasSI">—</div>
+          <div class="kpi-pct" id="kpiCelulasSIPct">—%</div>
+          <div class="kpi-label">Asistencia Célula</div>
+        </div>
+      </div>
+
+      <!-- KPI: Inasistencia célula -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-danger">
+          <div class="kpi-icon"><i class="bi bi-house-slash-fill"></i></div>
+          <div class="kpi-value" id="kpiCelulasNO">—</div>
+          <div class="kpi-pct" id="kpiCelulasNOPct">—%</div>
+          <div class="kpi-label">Inasistencia Célula</div>
+        </div>
+      </div>
+
+      <!-- KPI: Asistencia servicio -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-info">
+          <div class="kpi-icon"><i class="bi bi-building-fill"></i></div>
+          <div class="kpi-value" id="kpiServicioSI">—</div>
+          <div class="kpi-pct" id="kpiServicioSIPct">—%</div>
+          <div class="kpi-label">Asistencia Servicio</div>
+        </div>
+      </div>
+
+      <!-- KPI: Inasistencia servicio -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-warning">
+          <div class="kpi-icon"><i class="bi bi-building-slash"></i></div>
+          <div class="kpi-value" id="kpiServicioNO">—</div>
+          <div class="kpi-pct" id="kpiServicioNOPct">—%</div>
+          <div class="kpi-label">Inasistencia Servicio</div>
+        </div>
+      </div>
+
+      <!-- KPI: Asistencia ambos -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-accent">
+          <div class="kpi-icon"><i class="bi bi-star-fill"></i></div>
+          <div class="kpi-value" id="kpiAmbosSI">—</div>
+          <div class="kpi-pct" id="kpiAmbosSIPct">—%</div>
+          <div class="kpi-label">Asistió a Ambos</div>
+        </div>
+      </div>
+
+      <!-- KPI: Inasistencia ambos -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-neutral">
+          <div class="kpi-icon"><i class="bi bi-x-circle-fill"></i></div>
+          <div class="kpi-value" id="kpiAmbosNO">—</div>
+          <div class="kpi-pct" id="kpiAmbosNOPct">—%</div>
+          <div class="kpi-label">Ausente en Ambos</div>
+        </div>
+      </div>
+
+      <!-- KPI: Nuevos célula -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-new-c">
+          <div class="kpi-icon"><i class="bi bi-person-plus-fill"></i></div>
+          <div class="kpi-value" id="kpiNuevosCelula">—</div>
+          <div class="kpi-label">Nuevos en Célula</div>
+        </div>
+      </div>
+
+      <!-- KPI: Nuevos servicio -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-new-s">
+          <div class="kpi-icon"><i class="bi bi-person-check-fill"></i></div>
+          <div class="kpi-value" id="kpiNuevosServicio">—</div>
+          <div class="kpi-label">Nuevos en Servicio</div>
+        </div>
+      </div>
+
+      <!-- KPI: % General asistencia -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-pct-pos">
+          <div class="kpi-icon"><i class="bi bi-graph-up-arrow"></i></div>
+          <div class="kpi-value" id="kpiPctGeneral">—%</div>
+          <div class="kpi-label">% Asistencia General</div>
+        </div>
+      </div>
+
+      <!-- KPI: % Asistencia célula -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-pct-c">
+          <div class="kpi-icon"><i class="bi bi-pie-chart-fill"></i></div>
+          <div class="kpi-value" id="kpiPctCelula">—%</div>
+          <div class="kpi-label">% Asistencia Célula</div>
+        </div>
+      </div>
+
+      <!-- KPI: % Asistencia servicio -->
+      <div class="col-6 col-md-4 col-xl-2">
+        <div class="kpi-card kpi-pct-s">
+          <div class="kpi-icon"><i class="bi bi-pie-chart"></i></div>
+          <div class="kpi-value" id="kpiPctServicio">—%</div>
+          <div class="kpi-label">% Asistencia Servicio</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── GRÁFICOS FILA 1 ── -->
+  <section class="charts-section px-4 pb-3">
+    <div class="row g-3">
+
+      <!-- Donut asistencia general -->
+      <div class="col-md-6 col-xl-3">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Asistencia General</span>
+            <span class="chart-badge">Donut</span>
+          </div>
+          <div class="chart-body">
+            <canvas id="chartDonut"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Embudo nuevos -->
+      <div class="col-md-6 col-xl-3">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Embudo de Nuevos</span>
+            <span class="chart-badge">Funnel</span>
+          </div>
+          <div class="chart-body">
+            <canvas id="chartFunnel"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top grupos mejor asistencia -->
+      <div class="col-md-6 col-xl-3">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Top Asistencia por Grupo</span>
+            <span class="chart-badge">Ranking</span>
+          </div>
+          <div class="chart-body chart-rank">
+            <canvas id="chartRankTop"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grupos mayor ausentismo -->
+      <div class="col-md-6 col-xl-3">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Mayor Ausentismo</span>
+            <span class="chart-badge">Ranking</span>
+          </div>
+          <div class="chart-body chart-rank">
+            <canvas id="chartRankBottom"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── GRÁFICOS FILA 2 ── -->
+  <section class="charts-section px-4 pb-3">
+    <div class="row g-3">
+
+      <!-- Barras por grupo ministerial -->
+      <div class="col-md-12 col-xl-6">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Asistencia por Grupo Ministerial</span>
+            <span class="chart-badge">Barras</span>
+          </div>
+          <div class="chart-body chart-tall">
+            <canvas id="chartBarGroup"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barras apiladas SI/NO/NUEVO -->
+      <div class="col-md-12 col-xl-6">
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">SI / NO / NUEVO por Grupo</span>
+            <span class="chart-badge">Apilado</span>
+          </div>
+          <div class="chart-body chart-tall">
+            <canvas id="chartStacked"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── TABS TABLAS ── -->
+  <section class="tables-section px-4 pb-4">
+    <div class="table-card">
+      <ul class="nav nav-tabs table-tabs" id="tableTabs">
+        <li class="nav-item">
+          <a class="nav-link active" href="#tabPersonas" data-bs-toggle="tab">
+            <i class="bi bi-person-lines-fill me-1"></i>Personas
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#tabExcluidos" data-bs-toggle="tab">
+            <i class="bi bi-person-dash-fill me-1"></i>Excluidos
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#tabNuevos" data-bs-toggle="tab">
+            <i class="bi bi-person-plus-fill me-1"></i>Nuevos
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#tabHistorico" data-bs-toggle="tab">
+            <i class="bi bi-clock-history me-1"></i>Histórico (Excluidos Antiguos)
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#tabAusencias" data-bs-toggle="tab">
+            <i class="bi bi-calendar-x-fill me-1"></i>Monitor de Ausencias
+          </a>
+        </li>
+      </ul>
+      <div class="tab-content table-tab-content">
+
+        <!-- Tab personas -->
+        <div class="tab-pane fade show active" id="tabPersonas">
+          <div class="table-search-bar">
+            <input type="text" id="searchPersonas" class="table-search" placeholder="Buscar por nombre…" />
+            <span class="table-count" id="countPersonas">0 registros</span>
+          </div>
+          <div class="table-responsive table-scroll">
+            <table class="data-table" id="tablePersonas">
+              <thead>
+                <tr>
+                  <th>#</th><th>Nombre</th><th>Grupo</th><th>Célula</th><th>Servicio</th><th>Estado</th><th>Nuevo</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab excluidos -->
+        <div class="tab-pane fade" id="tabExcluidos">
+          <div class="table-search-bar">
+            <input type="text" id="searchExcluidos" class="table-search" placeholder="Buscar…" />
+            <span class="table-count" id="countExcluidos">0 registros</span>
+          </div>
+          <div class="table-responsive table-scroll">
+            <table class="data-table" id="tableExcluidos">
+              <thead>
+                <tr><th>#</th><th>Nombre</th><th>Grupo</th><th>Célula</th><th>Servicio</th><th>Estado</th><th>Fecha</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab nuevos -->
+        <div class="tab-pane fade" id="tabNuevos">
+          <div class="table-search-bar">
+            <input type="text" id="searchNuevos" class="table-search" placeholder="Buscar…" />
+            <span class="table-count" id="countNuevos">0 registros</span>
+          </div>
+          <div class="table-responsive table-scroll">
+            <table class="data-table" id="tableNuevos">
+              <thead>
+                <tr><th>#</th><th>Nombre</th><th>Grupo</th><th>Célula</th><th>Servicio</th><th>Tipo Nuevo</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab histórico -->
+        <div class="tab-pane fade" id="tabHistorico">
+          <div class="table-search-bar">
+            <input type="text" id="searchHistorico" class="table-search" placeholder="Buscar…" />
+            <span class="table-count" id="countHistorico">0 registros</span>
+          </div>
+          <div class="table-responsive table-scroll">
+            <table class="data-table" id="tableHistorico">
+              <thead>
+                <tr><th>#</th><th>Nombre</th><th>Estado</th><th>Fecha Exclusión</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab ausencias -->
+        <div class="tab-pane fade" id="tabAusencias">
+          <div class="table-search-bar">
+            <input type="text" id="searchAusencias" class="table-search" placeholder="Buscar por nombre o grupo…" />
+            <div class="ausencias-legend d-flex gap-3 align-items-center">
+              <span class="absence-badge absence-normal">● Normal</span>
+              <span class="absence-badge absence-watch">● Seguimiento</span>
+              <span class="absence-badge absence-warn">● Advertencia</span>
+              <span class="absence-badge absence-crit">● Crítico</span>
+            </div>
+            <span class="table-count" id="countAusencias">0 registros</span>
+          </div>
+
+          <!-- Summary cards de ausencias -->
+          <div class="ausencias-summary" id="ausenciasSummary">
+            <div class="aus-card aus-normal">
+              <div class="aus-card-num" id="ausNormalCount">0</div>
+              <div class="aus-card-label">Normal<div class="aus-card-sub">&lt; 1 semana</div></div>
+            </div>
+            <div class="aus-card aus-watch">
+              <div class="aus-card-num" id="ausWatchCount">0</div>
+              <div class="aus-card-label">Seguimiento<div class="aus-card-sub">1–2 semanas</div></div>
+            </div>
+            <div class="aus-card aus-warn">
+              <div class="aus-card-num" id="ausWarnCount">0</div>
+              <div class="aus-card-label">Advertencia<div class="aus-card-sub">2–4 semanas</div></div>
+            </div>
+            <div class="aus-card aus-crit">
+              <div class="aus-card-num" id="ausCritCount">0</div>
+              <div class="aus-card-label">Crítico<div class="aus-card-sub">&gt; 4 semanas</div></div>
+            </div>
+          </div>
+
+          <!-- Filtros de nivel -->
+          <div class="ausencias-filter-row">
+            <span class="ausencias-filter-label">Mostrar nivel:</span>
+            <button class="aus-filter-btn active" data-level="">Todos</button>
+            <button class="aus-filter-btn" data-level="normal">Normal</button>
+            <button class="aus-filter-btn" data-level="watch">Seguimiento</button>
+            <button class="aus-filter-btn" data-level="warn">Advertencia</button>
+            <button class="aus-filter-btn" data-level="critical">Crítico</button>
+          </div>
+
+          <div class="table-responsive table-scroll">
+            <table class="data-table" id="tableAusencias">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Nombre</th>
+                  <th>Grupo</th>
+                  <th>Última Falta</th>
+                  <th>Tiempo sin asistir</th>
+                  <th>Célula</th>
+                  <th>Servicio</th>
+                  <th>Estado</th>
+                  <th>Nivel de Alerta</th>
+                </tr>
+              </thead>
+              <tbody id="tableAusenciasBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+</main><!-- /dashboardContent -->
+
+<!-- Footer -->
+<footer class="dash-footer">
+  Dashboard Iglesia · Desarrollado con SheetJS + Chart.js ·
+  <span id="footerFile">Sin archivo</span>
+</footer>
+
+<!-- Bootstrap JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+
+<!-- App JS -->
+<script src="app.js"></script>
+</body>
+</html>
