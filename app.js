@@ -340,13 +340,14 @@ const KPIEngine = {
     const servicioNO   = records.filter(r => r.servicio === 'NO').length;
     const servicioNUEVO = records.filter(r => r.servicio === 'NUEVO').length;
 
-    // Asistencia ambos
+    // Asistencia ambos — criterio EXACTO del Excel:
+    // célula = 'SI' estricto  AND  servicio = 'SI' estricto
+    // NUEVO *no* cuenta: un nuevo en servicio no asistió a célula y viceversa
     const ambosSI = records.filter(r =>
-      (r.celula === 'SI' || r.celula === 'NUEVO') &&
-      (r.servicio === 'SI' || r.servicio === 'NUEVO')
+      r.celula === 'SI' && r.servicio === 'SI'
     ).length;
 
-    // Inasistencia total (no fue a ninguno)
+    // Inasistencia total — ausente en ambos (NUEVO tampoco cuenta aquí)
     const ambosNO = records.filter(r =>
       r.celula === 'NO' && r.servicio === 'NO'
     ).length;
