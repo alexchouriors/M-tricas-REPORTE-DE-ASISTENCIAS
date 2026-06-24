@@ -446,7 +446,7 @@ const ChartEngine = {
       plugins: {
         legend: {
           labels: {
-            color: '#94a3b8',
+            color: Chart.defaults.color,
             font: { family: 'Outfit', size: 12 },
             boxWidth: 12,
             padding: 16,
@@ -457,7 +457,7 @@ const ChartEngine = {
           borderColor: 'rgba(255,255,255,.07)',
           borderWidth: 1,
           titleColor: '#e2e8f0',
-          bodyColor: '#94a3b8',
+          bodyColor: '#94a3b8',  // dark default; ThemeEngine overrides Chart.defaults
           padding: 10,
           cornerRadius: 8,
           titleFont: { family: 'Outfit', weight: '600' },
@@ -544,11 +544,11 @@ const ChartEngine = {
         scales: {
           x: {
             grid: { color: 'rgba(255,255,255,.04)' },
-            ticks: { color: '#64748b', font: { family: 'Outfit', size: 11 } },
+            ticks: { color: Chart.defaults.color, font: { family: 'Outfit', size: 11 } },
           },
           y: {
             grid: { display: false },
-            ticks: { color: '#94a3b8', font: { family: 'Outfit', size: 11 } },
+            ticks: { color: Chart.defaults.color, font: { family: 'Outfit', size: 11 } },
           },
         },
       },
@@ -596,11 +596,11 @@ const ChartEngine = {
         scales: {
           x: {
             grid: { display: false },
-            ticks: { color: '#94a3b8', font: { family: 'Outfit', size: 11 }, maxRotation: 30 },
+            ticks: { color: Chart.defaults.color, font: { family: 'Outfit', size: 11 }, maxRotation: 30 },
           },
           y: {
             grid: { color: 'rgba(255,255,255,.04)' },
-            ticks: { color: '#64748b', font: { family: 'Outfit', size: 11 } },
+            ticks: { color: Chart.defaults.color, font: { family: 'Outfit', size: 11 } },
           },
         },
       },
@@ -654,12 +654,12 @@ const ChartEngine = {
           x: {
             stacked: true,
             grid: { display: false },
-            ticks: { color: '#94a3b8', font: { family: 'Outfit', size: 11 }, maxRotation: 30 },
+            ticks: { color: Chart.defaults.color, font: { family: 'Outfit', size: 11 }, maxRotation: 30 },
           },
           y: {
             stacked: true,
             grid: { color: 'rgba(255,255,255,.04)' },
-            ticks: { color: '#64748b', font: { family: 'Outfit', size: 11 } },
+            ticks: { color: Chart.defaults.color, font: { family: 'Outfit', size: 11 } },
           },
         },
       },
@@ -739,7 +739,7 @@ const ChartEngine = {
           x: {
             grid: { display: false },
             ticks: {
-              color: '#94a3b8',
+              color: Chart.defaults.color,
               font: { family: 'Outfit', size: 10 },
               maxRotation: 30,
               minRotation: 15,
@@ -750,7 +750,7 @@ const ChartEngine = {
             max: 100,
             grid: { color: 'rgba(255,255,255,.04)' },
             ticks: {
-              color: '#64748b',
+              color: Chart.defaults.color,
               font: { family: 'Outfit', size: 10 },
               callback: v => v + '%',
             },
@@ -782,7 +782,7 @@ const TableEngine = {
     if (v === 'SI')    return `<span class="badge-si">SI</span>`;
     if (v === 'NO')    return `<span class="badge-no">NO</span>`;
     if (v === 'NUEVO') return `<span class="badge-nuevo">NUEVO</span>`;
-    return `<span style="color:#64748b">${val || '—'}</span>`;
+    return `<span style="color:var(--text-dim)">${val || '—'}</span>`;
   },
 
   /* Render tabla de personas */
@@ -794,10 +794,10 @@ const TableEngine = {
       <tr>
         <td>${i+1}</td>
         <td>${r.nombre}</td>
-        <td style="color:#94a3b8;font-size:11px">${r.grupo.replace(/Ministr[ao]s?\s*/i,'').substring(0,30)}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.grupo.replace(/Ministr[ao]s?\s*/i,'').substring(0,30)}</td>
         <td>${this.badge(r.celula)}</td>
         <td>${this.badge(r.servicio)}</td>
-        <td style="color:#64748b;font-size:11px">${r.estado || '—'}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.estado || '—'}</td>
         <td>${r.esNuevo ? '<span class="badge-nuevo-tag">NUEVO</span>' : ''}</td>
       </tr>
     `).join('');
@@ -814,11 +814,11 @@ const TableEngine = {
       <tr>
         <td>${i+1}</td>
         <td>${r.nombre}</td>
-        <td style="color:#94a3b8;font-size:11px">${r.grupo.substring(0,30)}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.grupo.substring(0,30)}</td>
         <td>${this.badge(r.celula)}</td>
         <td>${this.badge(r.servicio)}</td>
-        <td style="color:#64748b;font-size:11px">${r.estado || '—'}</td>
-        <td style="color:#64748b;font-size:11px">${r.fecha || '—'}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.estado || '—'}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.fecha || '—'}</td>
       </tr>
     `).join('');
 
@@ -853,7 +853,7 @@ const TableEngine = {
       return `<tr>
         <td>${i+1}</td>
         <td>${r.nombre}</td>
-        <td style="color:#94a3b8;font-size:11px">${r.grupo.replace(/Ministr[ao]s?\s*/i,'').substring(0,28)}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.grupo.replace(/Ministr[ao]s?\s*/i,'').substring(0,28)}</td>
         <td>${celulaDisplay}</td>
         <td>${servicioDisplay}</td>
         <td>${tipoTag}</td>
@@ -873,7 +873,7 @@ const TableEngine = {
         <td>${i+1}</td>
         <td>${r.nombre}</td>
         <td>${this.badge(r.estado)}</td>
-        <td style="color:#64748b;font-size:11px">${r.fecha || '—'}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.fecha || '—'}</td>
       </tr>
     `).join('');
 
@@ -1214,7 +1214,7 @@ const AbsenceEngine = {
     if (!tbody) return;
 
     if (data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:32px">
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--text-dim);padding:32px">
         No hay registros con fecha de falta disponibles
       </td></tr>`;
       return;
@@ -1238,12 +1238,12 @@ const AbsenceEngine = {
       return `<tr data-level="${r.nivel}">
         <td>${i+1}</td>
         <td style="font-weight:500">${r.nombre}</td>
-        <td style="color:#94a3b8;font-size:11px">${grpShort}</td>
+        <td style="color:var(--text-dim);font-size:11px">${grpShort}</td>
         <td style="font-size:12px;color:var(--text-dim)">${r.fechaFormatted}</td>
         <td>${timeHtml}</td>
         <td>$$BADGE_C$$</td>
         <td>$$BADGE_S$$</td>
-        <td style="color:#64748b;font-size:11px">${r.estado || '—'}</td>
+        <td style="color:var(--text-dim);font-size:11px">${r.estado || '—'}</td>
         <td>${alertPill}</td>
       </tr>`.replace('$$BADGE_C$$', TableEngine.badge(r.celula))
              .replace('$$BADGE_S$$', TableEngine.badge(r.servicio));
@@ -1584,7 +1584,89 @@ const GSheetsEngine = {
 /* ────────────────────────────────────────────────────────────
    9. BOOTSTRAP — arranque cuando el DOM esté listo
 ──────────────────────────────────────────────────────────── */
+/* ────────────────────────────────────────────────────────────
+   THEME ENGINE — Modo claro / oscuro
+   Aplica data-theme="light" | "dark" al <html>
+   Actualiza Chart.js defaults para colores de ejes/grid
+──────────────────────────────────────────────────────────── */
+const ThemeEngine = {
+
+  STORAGE_KEY: 'iglesia_dash_theme',
+
+  /* Devuelve el tema activo */
+  current() {
+    return document.documentElement.getAttribute('data-theme') || 'dark';
+  },
+
+  /* Aplica el tema y sincroniza todo */
+  apply(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem(this.STORAGE_KEY, theme);
+    this._updateIcon(theme);
+    this._updateChartDefaults(theme);
+
+    // Re-renderiza gráficos si hay datos cargados
+    if (!document.getElementById('dashboardContent').classList.contains('d-none')) {
+      const active   = DataStore.getActiveMain();
+      const filtered = DataStore.applyFilters(active);
+      const kpis     = KPIEngine.compute(filtered);
+      ChartEngine.renderAll(kpis);
+    }
+  },
+
+  /* Alterna entre claro y oscuro */
+  toggle() {
+    this.apply(this.current() === 'dark' ? 'light' : 'dark');
+  },
+
+  /* Actualiza el icono del botón */
+  _updateIcon(theme) {
+    const icon = document.getElementById('themeIcon');
+    if (!icon) return;
+    // Oscuro → mostrar sol (para cambiar a claro)
+    // Claro  → mostrar luna (para cambiar a oscuro)
+    icon.className = theme === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+  },
+
+  /* Actualiza los defaults globales de Chart.js */
+  _updateChartDefaults(theme) {
+    const isLight = theme === 'light';
+    // Light mode: use near-black so axis labels, ticks and legends are clearly readable
+    const textColor   = isLight ? '#0f172a'          : '#94a3b8';
+    const gridColor   = isLight ? 'rgba(0,0,0,.08)'  : 'rgba(255,255,255,.04)';
+    const tooltipBg   = isLight ? '#ffffff'           : '#1c2333';
+    const tooltipBorder = isLight ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.07)';
+    const tooltipTitle  = isLight ? '#0f172a'          : '#e2e8f0';
+    const tooltipBody   = isLight ? '#1e293b'          : '#94a3b8';
+
+    // Scale defaults
+    Chart.defaults.color = textColor;
+    Chart.defaults.borderColor = gridColor;
+
+    // Plugin defaults
+    Chart.defaults.plugins.tooltip.backgroundColor = tooltipBg;
+    Chart.defaults.plugins.tooltip.borderColor     = tooltipBorder;
+    Chart.defaults.plugins.tooltip.titleColor      = tooltipTitle;
+    Chart.defaults.plugins.tooltip.bodyColor       = tooltipBody;
+
+    // Legend
+    Chart.defaults.plugins.legend.labels.color = textColor;
+  },
+
+  /* Inicializa: carga preferencia guardada o usa oscuro por defecto */
+  init() {
+    const saved = localStorage.getItem(this.STORAGE_KEY) || 'dark';
+    this.apply(saved);
+
+    document.getElementById('btnTheme')?.addEventListener('click', () => {
+      this.toggle();
+    });
+  },
+};
+
+
 document.addEventListener('DOMContentLoaded', () => {
+  ThemeEngine.init();
   UIController.init();
   GSheetsEngine.initModal();
   AbsenceEngine.initEvents();

@@ -74,11 +74,18 @@ body {
 
 .brand-icon {
   width: 40px; height: 40px;
-  background: var(--gold-dim);
-  border: 1px solid var(--gold);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
+  overflow: hidden;
   display: flex; align-items: center; justify-content: center;
-  font-size: 18px; color: var(--gold);
+  flex-shrink: 0;
+}
+
+.brand-logo-img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
 }
 
 .brand-title {
@@ -1274,4 +1281,222 @@ body {
   padding: 2px 8px;
   font-size: 11px;
   font-weight: 700;
+}
+
+/* ================================================================
+   LIGHT THEME — [data-theme="light"]
+   Overrides all CSS variables for a clean bright mode
+================================================================ */
+[data-theme="light"] {
+  --bg-base:      #f0f4f8;
+  --bg-card:      #ffffff;
+  --bg-card2:     #f8fafc;
+  --bg-hover:     #eef2f7;
+  --border:       rgba(0,0,0,.09);
+  --border-light: rgba(0,0,0,.05);
+
+  /* Light mode: all text tones are dark so nothing reads as grey on white */
+  --text-main:    #0f172a;   /* almost black — main text */
+  --text-muted:   #1e293b;   /* dark navy — previously medium grey */
+  --text-dim:     #334155;   /* dark slate — previously dark grey */
+}
+
+/* Topbar light */
+[data-theme="light"] .topbar {
+  background: #ffffff;
+  border-bottom-color: rgba(0,0,0,.1);
+}
+
+/* Filters light */
+[data-theme="light"] .filters-bar {
+  background: #ffffff;
+  border-bottom-color: rgba(0,0,0,.08);
+}
+
+[data-theme="light"] .filter-select {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,.12);
+  color: #1e293b;
+}
+
+[data-theme="light"] .filter-select option { background: #ffffff; }
+
+/* KPI cards light */
+[data-theme="light"] .kpi-card {
+  background: #ffffff;
+  border-color: rgba(0,0,0,.08);
+  box-shadow: 0 1px 8px rgba(0,0,0,.06);
+}
+
+/* Chart cards light */
+[data-theme="light"] .chart-card {
+  background: #ffffff;
+  border-color: rgba(0,0,0,.08);
+  box-shadow: 0 1px 8px rgba(0,0,0,.06);
+}
+
+/* Table card light */
+[data-theme="light"] .table-card {
+  background: #ffffff;
+  border-color: rgba(0,0,0,.08);
+}
+
+[data-theme="light"] .table-tabs {
+  background: #f8fafc;
+  border-bottom-color: rgba(0,0,0,.08);
+}
+
+[data-theme="light"] .table-tabs .nav-link { color: #1e293b; }
+[data-theme="light"] .table-tabs .nav-link.active { color: var(--gold) !important; }
+
+[data-theme="light"] .data-table thead th {
+  background: #f1f5f9;
+  color: #64748b;
+  border-bottom-color: rgba(0,0,0,.08);
+}
+
+[data-theme="light"] .data-table tbody td { color: #1e293b; }
+[data-theme="light"] .data-table tbody td { border-bottom-color: rgba(0,0,0,.05); }
+[data-theme="light"] .data-table tbody tr:hover td { background: #f8fafc; }
+
+[data-theme="light"] .table-search {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,.12);
+  color: #1e293b;
+}
+[data-theme="light"] .table-search::placeholder { color: #64748b; }
+
+/* Empty state light */
+[data-theme="light"] .empty-state { color: #1e293b; }
+[data-theme="light"] .empty-option {
+  background: #ffffff;
+  border-color: rgba(0,0,0,.09);
+  box-shadow: 0 1px 8px rgba(0,0,0,.06);
+}
+[data-theme="light"] .empty-opt-title { color: #1e293b; }
+[data-theme="light"] .empty-opt-desc  { color: #1e293b; }
+[data-theme="light"] .empty-icon      { color: #334155; }
+[data-theme="light"] .empty-title     { color: #0f172a; }
+[data-theme="light"] .empty-sub       { color: #1e293b; }
+
+/* Footer light */
+[data-theme="light"] .dash-footer {
+  background: #ffffff;
+  border-top-color: rgba(0,0,0,.08);
+  color: #1e293b;
+}
+
+/* Loading overlay light */
+[data-theme="light"] .loading-overlay { background: rgba(240,244,248,.95); }
+
+/* Toggle excluidos light */
+[data-theme="light"] .excl-toggle {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,.1);
+}
+
+/* GSheets modal light */
+[data-theme="light"] .gsheet-modal-content {
+  background: #ffffff;
+  border-color: rgba(0,0,0,.1);
+}
+[data-theme="light"] .gsheet-modal-header { border-bottom-color: rgba(0,0,0,.08); }
+[data-theme="light"] .gsheet-modal-footer { border-top-color: rgba(0,0,0,.08); }
+[data-theme="light"] .gsheet-steps {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,.06);
+}
+[data-theme="light"] .gsheet-step { color: #0f172a; }
+[data-theme="light"] .gsheet-input {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,.12);
+  color: #1e293b;
+}
+[data-theme="light"] .gsheet-mode-tabs {
+  background: #f1f5f9;
+  border-color: rgba(0,0,0,.1);
+}
+[data-theme="light"] .gsheet-mode-tab.active { background: #ffffff; color: #1e293b; }
+[data-theme="light"] .gsheet-mode-tab { color: #1e293b; }
+[data-theme="light"] .sync-interval-opt {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,.1);
+  color: #1e293b;
+}
+[data-theme="light"] .gsheet-conn-status {
+  background: #f8fafc;
+  border-color: rgba(0,0,0,.08);
+  color: #1e293b;
+}
+[data-theme="light"] .btn-gsheet-cancel {
+  border-color: rgba(0,0,0,.12);
+  color: #1e293b;
+}
+[data-theme="light"] .btn-gsheet-cancel:hover { color: #1e293b; }
+
+/* Ausencias light */
+[data-theme="light"] .ausencias-summary { border-bottom-color: rgba(0,0,0,.05); }
+[data-theme="light"] .aus-card { box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+[data-theme="light"] .ausencias-filter-row { border-bottom-color: rgba(0,0,0,.05); }
+[data-theme="light"] .aus-filter-btn {
+  border-color: rgba(0,0,0,.1);
+  color: #1e293b;
+}
+[data-theme="light"] .aus-filter-btn.active {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: rgba(0,0,0,.2);
+}
+
+/* Charts in light mode — force readable axis colors */
+[data-theme="light"] body { --chart-text: #1e293b; --chart-grid: rgba(0,0,0,.08); }
+
+/* ── Theme Toggle Button ── */
+.btn-theme {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s, transform .2s;
+  flex-shrink: 0;
+}
+.btn-theme:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  transform: rotate(20deg);
+}
+
+/* In light mode the button shows moon icon (click → go dark) */
+[data-theme="light"] .btn-theme {
+  background: #f1f5f9;
+  border-color: rgba(0,0,0,.12);
+  color: #1e293b;
+}
+[data-theme="light"] .btn-theme:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* ── BETA Tag ── */
+.beta-tag {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(251,146,60,.12);
+  color: #fb923c;
+  border: 1px solid rgba(251,146,60,.35);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+[data-theme="light"] .beta-tag {
+  background: rgba(251,146,60,.1);
+  color: #ea580c;
+  border-color: rgba(251,146,60,.4);
 }
