@@ -25,6 +25,7 @@ const DataStore = {
   /* Metadatos del archivo */
   reportTitle:  '',
   fileName:     '',
+  rawBuffer:    null,   // ArrayBuffer del último archivo cargado localmente (para subida a GitHub)
 
   /* Estado de la UI */
   includeExcluidos: false,
@@ -74,6 +75,16 @@ const ExcelParser = {
     return String(v).trim();
   },
 
+  /* Devuelve true si el valor de celda debe considerarse "vacío"
+     (null, undefined, string vacío, 0 numérico, booleano false, etc.)
+     Necesario porque SheetJS puede devolver 0 o false en celdas en blanco
+     dependiendo de cómo fue generado el Excel. */
+  isEmpty(v) {
+    if (v === null || v === undefined) return true;
+    const s = String(v).trim();
+    return s === '' || s === '0' || s === 'false';
+  },
+
   /* Convierte número de serie Excel a fecha legible */
   excelDate(v) {
     if (!v) return '';
@@ -109,14 +120,15 @@ const ExcelParser = {
 
       /* Detectar encabezado de grupo ministerial:
          - La fila contiene texto en col0
+         - col1 (Nombre) DEBE estar vacía — si hay nombre, es fila de persona
+         - col2 (Célula) y col3 (Servicio) deben estar vacías (sin datos de asistencia)
          - NO empieza con número ni con "N°" ni con "TOTAL"
-         - Col1 está vacía (no es una fila de datos con nombre)
-         - Col2 está vacía o vacía de datos de asistencia
       */
       const isGroupHeader = (
         col0.length > 3 &&
-        col2 === '' &&
-        col3 === '' &&
+        col1 === '' &&
+        this.isEmpty(row[2]) &&
+        this.isEmpty(row[3]) &&
         !/^\d/.test(col0) &&
         !col0.startsWith('N°') &&
         !col0.startsWith('TOTAL') &&
@@ -126,7 +138,7 @@ const ExcelParser = {
       );
 
       if (isGroupHeader) {
-        currentGroup = col0;
+        currentGroup = col0.trim();
         continue;
       }
 
@@ -169,7 +181,7 @@ const ExcelParser = {
           celula:          celVal2  || 'NO',    // valor real del campo Célula (C)
           servicio:        serVal3  || 'NO',    // valor real del campo Servicio (D)
           estado:          col4     || '',      // valor real del campo Estado (E)
-          grupo:           currentGroup,
+          grupo:           currentGroup.trim(),
           esNuevo:         esNuevo,
           esNuevoCelula:   esNuevoCelula,       // NUEVO en célula (Estado=NUEVO)
           esNuevoServicio: esNuevoServicio,     // NUEVO en servicio (Célula=NUEVO)
@@ -198,8 +210,14 @@ const ExcelParser = {
       const col4 = this.str(row[4]);
 
       // Detectar encabezado de grupo
-      if (col0.length > 3 && col2 === '' && !/^\d/.test(col0) && !col0.startsWith('TOTAL')) {
-        currentGroup = col0;
+      if (
+        col0.length > 3 &&
+        col1 === '' &&
+        this.isEmpty(row[2]) &&
+        !/^\d/.test(col0) &&
+        !col0.startsWith('TOTAL')
+      ) {
+        currentGroup = col0.trim();
         continue;
       }
 
@@ -212,7 +230,7 @@ const ExcelParser = {
           celula:   col2.toUpperCase() || 'NO',
           servicio: col3.toUpperCase() || 'NO',
           estado:   col4 || '',
-          grupo:    currentGroup,
+          grupo:    currentGroup.trim(),
           esNuevo:  false,
           fecha:    this.excelDate(fechaRaw || row[5]),
           fuente:   'excluidos',
@@ -238,8 +256,14 @@ const ExcelParser = {
       const col4 = this.str(row[4]);
 
       // Encabezado grupo
-      if (col0.length > 3 && !/^\d/.test(col0) && !col0.startsWith('TOTAL')) {
-        currentGroup = col0;
+      if (
+        col0.length > 3 &&
+        col1 === '' &&
+        this.isEmpty(row[2]) &&
+        !/^\d/.test(col0) &&
+        !col0.startsWith('TOTAL')
+      ) {
+        currentGroup = col0.trim();
         continue;
       }
 
@@ -251,7 +275,7 @@ const ExcelParser = {
           celula:   col2.toUpperCase() || 'NO',
           servicio: col3.toUpperCase() || 'NO',
           estado:   col4 || '',
-          grupo:    currentGroup,
+          grupo:    currentGroup.trim(),
           esNuevo:  true,
           fecha:    this.excelDate(row[5]),
           fuente:   'nuevo_ex',
@@ -959,11 +983,13 @@ const UIController = {
       e.target.value = ''; // Permite recargar el mismo archivo
     });
 
-    // Toggle excluidos
-    document.getElementById('toggleExcluidos')?.addEventListener('change', e => {
-      DataStore.includeExcluidos = e.target.checked;
-      this.refresh();
-    });
+    // Toggle excluidos — botón oculto visualmente en topbar (ver index.html).
+    // Listener comentado para evitar referencias muertas; la lógica de
+    // DataStore.includeExcluidos / this.refresh() permanece intacta para uso futuro.
+    // document.getElementById('toggleExcluidos')?.addEventListener('change', e => {
+    //   DataStore.includeExcluidos = e.target.checked;
+    //   this.refresh();
+    // });
 
     // Filtros: actualizar en cambio
     ['filterGroup','filterEstado','filterCelula','filterServicio','filterNuevo']
@@ -1011,6 +1037,11 @@ const UIController = {
         this.showDashboard();
         document.getElementById('footerFile').textContent = file.name;
         document.getElementById('reportTitle').textContent = DataStore.reportTitle || file.name;
+
+        /* Guarda el buffer en DataStore y habilita el botón de subida */
+        DataStore.rawBuffer = e.target.result;
+        CloudEngine.enableUploadBtn(file.name);
+        SaveEngine.enable(file.name);
       } catch (err) {
         console.error('Error al procesar el archivo:', err);
         alert(`Error al leer el archivo:\n${err.message}`);
@@ -1527,10 +1558,12 @@ const GSheetsEngine = {
     if (!modalEl) return;
     this.state.modalRef = new bootstrap.Modal(modalEl);
 
-    // Abrir modal desde topbar
-    document.getElementById('btnGsheets')?.addEventListener('click', () => {
-      this.state.modalRef.show();
-    });
+    // Abrir modal desde topbar — botón oculto visualmente (ver index.html).
+    // Listener comentado; this.state.modalRef.show() y toda la lógica de
+    // sincronización con Google Sheets permanecen intactas para uso futuro.
+    // document.getElementById('btnGsheets')?.addEventListener('click', () => {
+    //   this.state.modalRef.show();
+    // });
 
     // Abrir modal desde empty state
     document.getElementById('btnGsheetsEmpty')?.addEventListener('click', () => {
@@ -1665,11 +1698,1140 @@ const ThemeEngine = {
 };
 
 
-document.addEventListener('DOMContentLoaded', () => {
+/* ────────────────────────────────────────────────────────────
+   9.5 AUDIT ENGINE — Capa de seguridad/auditoría compartida
+       Obtiene el nombre del usuario con sesión iniciada
+       (guardado por SessionEngine en sessionStorage) y notifica
+       por Telegram las acciones sensibles (Eliminar / Cargar /
+       Descargar / Guardar).
+──────────────────────────────────────────────────────────── */
+const AuditEngine = {
+
+  /**
+   * Devuelve el nombre del usuario actualmente en sesión.
+   * Ya no se pregunta con prompt(): el nombre se registró una
+   * única vez al iniciar sesión y se reutiliza para todas las
+   * acciones de auditoría.
+   *
+   * @returns {string|null} Nombre del usuario o null si no hay sesión activa
+   */
+  getUser() {
+    return SessionEngine.getUser();
+  },
+
+  /**
+   * Dispara la notificación de Telegram sin bloquear la UI.
+   * Los errores se registran en consola pero nunca interrumpen
+   * el flujo de la acción principal.
+   */
+  notify({ action, user, fileName, extra }) {
+    if (typeof TelegramEngine === 'undefined') {
+      console.warn('[AuditEngine] TelegramEngine no está disponible; se omite la notificación.');
+      return;
+    }
+    /* Fire-and-forget: no se usa await para no bloquear la interfaz */
+    TelegramEngine.notify({ action, user, fileName, extra })
+      .catch(err => console.error('[AuditEngine] Error al notificar por Telegram:', err));
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   9.6 SESSION ENGINE — Pantalla de inicio de sesión + auditoría
+       Controla el overlay de login/logout, persiste el nombre
+       del usuario en sessionStorage y notifica por Telegram
+       cada inicio/cierre de sesión.
+──────────────────────────────────────────────────────────── */
+const SessionEngine = {
+
+  STORAGE_KEY: 'ccrm_dashboard_user',
+
+  _el(id) { return document.getElementById(id); },
+
+  /** Devuelve el nombre de usuario en sesión, o null si no hay sesión activa */
+  getUser() {
+    const name = sessionStorage.getItem(this.STORAGE_KEY);
+    return (name && name.trim() !== '') ? name : null;
+  },
+
+  /** true si hay una sesión activa */
+  isLoggedIn() {
+    return this.getUser() !== null;
+  },
+
+  /* ── Muestra el overlay de login (sin animación, estado inicial) ── */
+  showOverlay() {
+    const overlay = this._el('loginOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('login-overlay-hidden', 'login-overlay-fadeout');
+    overlay.style.display = 'flex';
+    /* Reinicia al estado "landing" (logo a la izquierda + botón) */
+    overlay.classList.remove('login-state-active');
+    const nameStep = this._el('loginNameStep');
+    if (nameStep) nameStep.classList.remove('login-name-step-visible');
+    const input = this._el('loginNameInput');
+    if (input) input.value = '';
+  },
+
+  /* ── Oculta el overlay instantáneamente (sin fade), usado al cargar con sesión ya activa ── */
+  hideOverlayInstant() {
+    const overlay = this._el('loginOverlay');
+    if (!overlay) return;
+    overlay.style.display = 'none';
+    overlay.classList.add('login-overlay-hidden');
+  },
+
+  /* ── Paso 1 → 2: centra el logo y revela el input de nombre ── */
+  _revealNameStep() {
+    const overlay = this._el('loginOverlay');
+    if (!overlay) return;
+    overlay.classList.add('login-state-active');
+    const nameStep = this._el('loginNameStep');
+    setTimeout(() => {
+      if (nameStep) nameStep.classList.add('login-name-step-visible');
+      this._el('loginNameInput')?.focus();
+    }, 450); // Coincide con la duración de la transición del logo (ver CSS)
+  },
+
+  /* ── Confirma el nombre, persiste la sesión y desvanece el overlay ── */
+  async _confirmLogin() {
+    const input = this._el('loginNameInput');
+    const name = (input?.value || '').trim();
+
+    const errEl = this._el('loginNameError');
+    if (name === '') {
+      if (errEl) errEl.classList.remove('d-none');
+      input?.focus();
+      return;
+    }
+    if (errEl) errEl.classList.add('d-none');
+
+    sessionStorage.setItem(this.STORAGE_KEY, name);
+
+    /* Notificación de auditoría por Telegram (fire-and-forget) */
+    if (typeof TelegramEngine !== 'undefined') {
+      TelegramEngine.notifySession('login', name)
+        .catch(err => console.error('[SessionEngine] Error al notificar inicio de sesión:', err));
+    }
+
+    /* Desvanece el overlay y revela el dashboard */
+    const overlay = this._el('loginOverlay');
+    if (overlay) {
+      overlay.classList.add('login-overlay-fadeout');
+      setTimeout(() => {
+        overlay.style.display = 'none';
+        overlay.classList.add('login-overlay-hidden');
+      }, 500); // Coincide con la duración del fade-out (ver CSS)
+    }
+
+    /* Refleja el usuario en sesión donde corresponda en la UI */
+    this._updateSessionUI(name);
+  },
+
+  /* ── Cierra la sesión: notifica, limpia storage, y recarga la app
+       para vaciar por completo las métricas/gráficos cargados
+       (así la siguiente sesión siempre arranca desde cero) ── */
+  async logout() {
+    const name = this.getUser();
+    sessionStorage.removeItem(this.STORAGE_KEY);
+
+    if (name && typeof TelegramEngine !== 'undefined') {
+      try {
+        /* Se espera el envío (con límite de 1.5s) para no perder la
+           notificación al recargar la página inmediatamente después */
+        await Promise.race([
+          TelegramEngine.notifySession('logout', name),
+          new Promise(resolve => setTimeout(resolve, 1500)),
+        ]);
+      } catch (err) {
+        console.error('[SessionEngine] Error al notificar cierre de sesión:', err);
+      }
+    }
+
+    /* Recarga completa: limpia DataStore, gráficos, tablas y filtros
+       en memoria, dejando el dashboard listo para el próximo usuario */
+    window.location.reload();
+  },
+
+  /* ── Actualiza referencias visuales del usuario activo (si existieran) ── */
+  _updateSessionUI(name) {
+    const label = this._el('sessionUserLabel');
+    if (label) label.textContent = name;
+  },
+
+  init() {
+    /* Si ya existe una sesión (misma pestaña), no se muestra el login */
+    if (this.isLoggedIn()) {
+      this.hideOverlayInstant();
+      this._updateSessionUI(this.getUser());
+    } else {
+      this.showOverlay();
+    }
+
+    /* Botón "Iniciar Sesión" (paso 1 → 2) */
+    this._el('btnIniciarSesion')?.addEventListener('click', () => this._revealNameStep());
+
+    /* Confirmar nombre (botón + Enter) */
+    this._el('btnConfirmarNombre')?.addEventListener('click', () => this._confirmLogin());
+    this._el('loginNameInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this._confirmLogin();
+    });
+
+    /* Botón "Cerrar sesión" en la barra lateral del Menú */
+    this._el('btnCerrarSesion')?.addEventListener('click', () => {
+      /* Cierra el offcanvas del menú si estuviera abierto */
+      const offcanvasEl = this._el('sidebarMenu');
+      if (offcanvasEl && window.bootstrap) {
+        const instance = bootstrap.Offcanvas.getInstance(offcanvasEl);
+        instance?.hide();
+      }
+      this.logout();
+    });
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   10. HISTORY ENGINE — Panel lateral con repositorio GitHub
+       Consulta la API de GitHub para listar y cargar archivos
+       Excel (.xlsx, .xlsm, .xls) desde la carpeta REPORTES.
+──────────────────────────────────────────────────────────── */
+const HistoryEngine = {
+
+  /* ── Configuración ── */
+  GITHUB_API: 'https://api.github.com/repos/alexchouriors/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/contents/REPORTES',
+  VALID_EXTS: ['.xlsx', '.xlsm', '.xls'],
+
+  /* ── Estado interno ── */
+  _files:       [],   // Lista de archivos obtenidos de la API
+  _loadingFile: false, // Previene cargas simultáneas
+
+  /* ── Utilidades de DOM ── */
+  _el(id) { return document.getElementById(id); },
+
+  /* Muestra solo uno de los estados del panel */
+  _setState(state) {
+    const states = { loading: 'historyLoading', error: 'historyError', empty: 'historyEmpty' };
+    Object.entries(states).forEach(([key, id]) => {
+      const el = this._el(id);
+      if (!el) return;
+      el.classList.toggle('d-none', key !== state);
+    });
+
+    const listEl = this._el('listaReportesContainer');
+    if (listEl) listEl.classList.toggle('d-none', state !== 'list');
+  },
+
+  /* Formatea tamaño de bytes */
+  _fmtSize(bytes) {
+    if (!bytes || bytes === 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  },
+
+  /* Obtiene la extensión del nombre de archivo */
+  _ext(name) {
+    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls)$/);
+    return m ? '.' + m[1] : '';
+  },
+
+  /* Clase de icono según extensión */
+  _iconClass(ext) {
+    const map = { '.xlsx': 'bi-file-earmark-spreadsheet history-file-ext-xlsx',
+                  '.xlsm': 'bi-file-earmark-spreadsheet history-file-ext-xlsm',
+                  '.xls':  'bi-file-earmark-spreadsheet history-file-ext-xls'  };
+    return map[ext] || 'bi-file-earmark';
+  },
+
+  /* Clase de badge según extensión */
+  _badgeClass(ext) {
+    const map = { '.xlsx': 'badge-xlsx', '.xlsm': 'badge-xlsm', '.xls': 'badge-xls' };
+    return map[ext] || '';
+  },
+
+  /* ── Consulta la API de GitHub ── */
+  async fetchFileList() {
+    this._setState('loading');
+
+    try {
+      const headers = { 'Accept': 'application/vnd.github.v3+json' };
+      const token = AuthEngine.getToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(this.GITHUB_API, { headers });
+
+      if (!res.ok) {
+        const msg = res.status === 404
+          ? 'Repositorio o carpeta no encontrada (404).'
+          : res.status === 403
+            ? 'Límite de peticiones a la API de GitHub excedido. Intenta en unos minutos.'
+            : `Error ${res.status}: ${res.statusText}`;
+        throw new Error(msg);
+      }
+
+      const items = await res.json();
+
+      /* Filtrar solo archivos con extensión Excel válida */
+      this._files = items.filter(item =>
+        item.type === 'file' && this.VALID_EXTS.includes(this._ext(item.name))
+      );
+
+      if (this._files.length === 0) {
+        this._setState('empty');
+        return;
+      }
+
+      this._renderList();
+      this._setState('list');
+
+    } catch (err) {
+      this._showError(err.message || 'Error desconocido al contactar la API de GitHub.');
+    }
+  },
+
+  /* ── Muestra el estado de error con mensaje ── */
+  _showError(msg) {
+    const msgEl = this._el('historyErrorMsg');
+    if (msgEl) msgEl.textContent = msg;
+    this._setState('error');
+  },
+
+  /* ── Renderiza la lista de archivos ── */
+  _renderList() {
+    const listEl = this._el('listaReportesContainer');
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
+    this._files.forEach((file, idx) => {
+      const ext  = this._ext(file.name);
+      const item = document.createElement('div');
+      item.className = 'list-group-item d-flex align-items-center justify-content-between flex-wrap gap-2';
+      item.dataset.idx = idx;
+
+      item.innerHTML = `
+        <div class="d-flex align-items-center gap-2 text-truncate">
+          <i class="bi ${this._iconClass(ext)} text-success fs-5"></i>
+          <span class="text-truncate" title="${file.name}">${file.name}</span>
+        </div>
+        <div class="d-flex align-items-center gap-2 ms-auto">
+          <button type="button" class="btn btn-sm btn-outline-primary btn-cargar-reporte" data-idx="${idx}">
+            <i class="bi bi-cloud-arrow-down me-1"></i>Cargar al Dashboard
+          </button>
+          <a class="btn btn-sm btn-outline-success" href="${file.download_url}" target="_blank" rel="noopener noreferrer">
+            <i class="bi bi-download me-1"></i>Descargar
+          </a>
+        </div>
+      `;
+
+      /* Botón "Cargar al Dashboard": valida usuario (auditoría) antes de ejecutar la lógica existente */
+      item.querySelector('.btn-cargar-reporte').addEventListener('click', () => {
+        const user = AuditEngine.getUser();
+        if (!user) return; // Sin sesión activa: se aborta la acción
+
+        AuditEngine.notify({ action: 'cargar', user, fileName: file.name });
+        this._loadFile(file, item);
+      });
+
+      /* Botón "Descargar": registra al usuario en sesión antes de permitir la descarga */
+      const btnDescargar = item.querySelector('a.btn-outline-success');
+      if (btnDescargar) {
+        btnDescargar.addEventListener('click', (e) => {
+          const user = AuditEngine.getUser();
+          if (!user) { e.preventDefault(); return; } // Sin sesión activa: se aborta la acción
+
+          AuditEngine.notify({ action: 'descargar', user, fileName: file.name });
+          /* No se hace preventDefault: el <a href> sigue su curso normal de descarga */
+        });
+      }
+
+      listEl.appendChild(item);
+    });
+  },
+
+  /* ── Descarga y procesa el archivo seleccionado ── */
+  async _loadFile(file, itemEl) {
+    if (this._loadingFile) return;
+    this._loadingFile = true;
+
+    /* UI: marcar item activo y mostrar spinner global */
+    itemEl.classList.add('loading');
+    const loadingOverlay = this._el('historyFileLoading');
+    const loadingName    = this._el('historyFileLoadingName');
+    if (loadingOverlay) loadingOverlay.classList.remove('d-none');
+    if (loadingName)    loadingName.textContent = file.name;
+
+    try {
+      /* Usa la download_url que provee la API de GitHub */
+      const url = file.download_url;
+      if (!url) throw new Error('El archivo no tiene URL de descarga disponible.');
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`No se pudo descargar el archivo (${res.status}).`);
+
+      const buffer   = await res.arrayBuffer();
+      const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+
+      /* Guarda el nombre en DataStore y parsea con ExcelParser existente */
+      DataStore.fileName = file.name;
+      ExcelParser.parse(workbook);
+
+      /* Actualiza filtros, gráficos y dashboard (mismo flujo que carga local) */
+      FilterEngine.populate(DataStore.rawMain);
+      UIController.refresh();
+      UIController.showDashboard();
+      const footerEl = document.getElementById('footerFile');
+      if (footerEl) footerEl.textContent = file.name;
+      const titleEl = document.getElementById('reportTitle');
+      if (titleEl) titleEl.textContent = DataStore.reportTitle || file.name;
+
+      /* Cierra el Modal tras cargar exitosamente */
+      const modalEl = this._el('modalHistorial');
+      if (modalEl) {
+        const bsModal = bootstrap.Modal.getInstance(modalEl);
+        if (bsModal) bsModal.hide();
+      }
+
+    } catch (err) {
+      /* Muestra el error dentro del panel para no interrumpir el dashboard */
+      this._showError(`Error al cargar "${file.name}": ${err.message}`);
+    } finally {
+      this._loadingFile = false;
+      itemEl.classList.remove('loading');
+      if (loadingOverlay) loadingOverlay.classList.add('d-none');
+    }
+  },
+
+  /* ── Inicialización: eventos y primera carga ── */
+  init() {
+    /* Al abrirse el Modal, carga la lista si aún no hay archivos */
+    const modalEl = document.getElementById('modalHistorial');
+    if (!modalEl) return;
+
+    modalEl.addEventListener('show.bs.modal', () => {
+      /* Solo hace fetch si la lista está vacía o en estado de error/inicial */
+      const listEl = this._el('listaReportesContainer');
+      const hasItems = listEl && listEl.children.length > 0;
+      if (!hasItems) this.fetchFileList();
+    });
+
+    /* Botón "Reintentar" en estado de error */
+    this._el('btnHistoryRetry')?.addEventListener('click', () => this.fetchFileList());
+
+    /* Botón ícono recargar dentro del info-box del modal */
+    this._el('btnRecargarRepo')?.addEventListener('click', () => {
+      const btn  = this._el('btnRecargarRepo');
+      const icon = this._el('reloadRepoIcon');
+      if (btn) btn.disabled = true;
+      if (btn)  btn.classList.add('spinning');
+      // reinicia animación CSS
+      if (icon) { icon.style.animation = 'none'; void icon.offsetWidth; icon.style.animation = ''; }
+      this._files = [];
+      const listEl = this._el('listaReportesContainer');
+      if (listEl) listEl.innerHTML = '';
+      this.fetchFileList().finally(() => {
+        if (btn) { btn.disabled = false; btn.classList.remove('spinning'); }
+      });
+    });
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   11. AUTH ENGINE — Gestión del Personal Access Token (PAT)
+       Almacena el token en localStorage.
+       Alerta de caducidad a los 350 días (tokens duran 1 año).
+──────────────────────────────────────────────────────────── */
+const AuthEngine = {
+
+  STORAGE_KEY_TOKEN:    'iglesia_gh_token',
+  STORAGE_KEY_SAVED_AT: 'iglesia_gh_token_saved_at',
+  EXPIRY_WARN_DAYS:     350,   // Aviso cuando restan ~15 días para expirar
+
+  /* ── Getter / Setter ── */
+  getToken()  { return localStorage.getItem(this.STORAGE_KEY_TOKEN) || ''; },
+  getSavedAt(){ return parseInt(localStorage.getItem(this.STORAGE_KEY_SAVED_AT) || '0', 10); },
+
+  saveToken(token) {
+    localStorage.setItem(this.STORAGE_KEY_TOKEN,    token.trim());
+    localStorage.setItem(this.STORAGE_KEY_SAVED_AT, Date.now().toString());
+  },
+
+  clearToken() {
+    localStorage.removeItem(this.STORAGE_KEY_TOKEN);
+    localStorage.removeItem(this.STORAGE_KEY_SAVED_AT);
+  },
+
+  /* Días transcurridos desde que se guardó el token */
+  daysSinceSaved() {
+    const saved = this.getSavedAt();
+    if (!saved) return 0;
+    return Math.floor((Date.now() - saved) / (1000 * 60 * 60 * 24));
+  },
+
+  /* Comprueba si el token está próximo a caducar */
+  isNearExpiry() {
+    return this.getToken() && this.daysSinceSaved() >= this.EXPIRY_WARN_DAYS;
+  },
+
+  /* ── Alerta de caducidad en el banner del offcanvas ── */
+  checkExpiry() {
+    const banner = document.getElementById('authExpiryBanner');
+    if (!banner) return;
+    if (this.isNearExpiry()) {
+      const days = this.daysSinceSaved();
+      const remaining = 365 - days;
+      document.getElementById('authExpiryDays').textContent =
+        remaining <= 0 ? 'ya ha caducado' : `caduca en ~${remaining} día${remaining !== 1 ? 's' : ''}`;
+      banner.classList.remove('d-none');
+    } else {
+      banner.classList.add('d-none');
+    }
+  },
+
+  /* ── Inicializa el modal de configuración ── */
+  initModal() {
+    /* Poblar input al abrir */
+    const modalEl = document.getElementById('authModal');
+    if (!modalEl) return;
+    this._modalRef = new bootstrap.Modal(modalEl);
+
+    /* Botón topbar */
+    document.getElementById('btnAuthConfig')?.addEventListener('click', () => {
+      document.getElementById('authTokenInput').value = this.getToken();
+      this._updateModalStatus();
+      this._modalRef.show();
+    });
+
+    /* Guardar */
+    document.getElementById('btnAuthSave')?.addEventListener('click', () => {
+      const val = document.getElementById('authTokenInput')?.value.trim() || '';
+      if (!val) { this._setModalError('El token no puede estar vacío.'); return; }
+      this.saveToken(val);
+      this._setModalError('');
+      this._updateModalStatus();
+      this.checkExpiry();
+      /* Muestra confirmación y cierra */
+      this._toast('Token guardado correctamente ✓', 'success');
+      setTimeout(() => this._modalRef.hide(), 800);
+    });
+
+    /* Borrar */
+    document.getElementById('btnAuthClear')?.addEventListener('click', () => {
+      this.clearToken();
+      document.getElementById('authTokenInput').value = '';
+      this._updateModalStatus();
+      this.checkExpiry();
+      CloudEngine.disableUploadBtn();
+    });
+
+    /* Toggle visibilidad del campo */
+    document.getElementById('btnAuthToggle')?.addEventListener('click', () => {
+      const input = document.getElementById('authTokenInput');
+      const icon  = document.getElementById('authToggleIcon');
+      if (!input) return;
+      const isPass = input.type === 'password';
+      input.type = isPass ? 'text' : 'password';
+      icon.className = isPass ? 'bi bi-eye-slash' : 'bi bi-eye';
+    });
+
+    /* Comprobar caducidad en cada apertura */
+    modalEl.addEventListener('show.bs.modal', () => this._updateModalStatus());
+  },
+
+  _updateModalStatus() {
+    const token   = this.getToken();
+    const days    = this.daysSinceSaved();
+    const statusEl = document.getElementById('authStatus');
+    if (!statusEl) return;
+    if (!token) {
+      statusEl.className = 'auth-status auth-status-none';
+      statusEl.innerHTML = '<i class="bi bi-shield-x me-1"></i>Sin token configurado';
+    } else if (this.isNearExpiry()) {
+      statusEl.className = 'auth-status auth-status-warn';
+      statusEl.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>Token guardado — caduca pronto (${days} días)`;
+    } else {
+      statusEl.className = 'auth-status auth-status-ok';
+      statusEl.innerHTML = `<i class="bi bi-shield-check me-1"></i>Token activo — ${days} día${days !== 1 ? 's' : ''} guardado`;
+    }
+  },
+
+  _setModalError(msg) {
+    const el = document.getElementById('authModalError');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.toggle('d-none', !msg);
+  },
+
+  _toast(msg, type = 'info') {
+    const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+    const t = document.createElement('div');
+    t.className = `sync-toast ${type}`;
+    t.innerHTML = `<span>${icons[type]||'•'}</span><span>${msg}</span>`;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+  },
+
+  init() {
+    this.initModal();
+    this.checkExpiry();
+
+    /* Enlace "Renovar ahora" dentro del banner de caducidad (ahora vive en #modalHistorial) */
+    document.getElementById('btnExpiryOpenAuth')?.addEventListener('click', e => {
+      e.preventDefault();
+
+      /* Cierra el modal de Historial antes de abrir el de configuración del token */
+      const historialEl = document.getElementById('modalHistorial');
+      if (historialEl) {
+        const bsHistorial = bootstrap.Modal.getInstance(historialEl);
+        if (bsHistorial) bsHistorial.hide();
+      }
+
+      document.getElementById('authTokenInput').value = this.getToken();
+      this._updateModalStatus();
+      this._modalRef?.show();
+    });
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   12. CLOUD ENGINE — Subida de archivos a GitHub via API PUT
+──────────────────────────────────────────────────────────── */
+const CloudEngine = {
+
+  GITHUB_UPLOAD_BASE: 'https://api.github.com/repos/alexchouriors/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/contents/REPORTES/',
+
+  /* Convierte ArrayBuffer a string Base64 */
+  _bufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  },
+
+  /* Habilita el botón de guardar en la nube con el nombre del archivo */
+  enableUploadBtn(fileName) {
+    const btn = document.getElementById('btnCloudSave');
+    if (!btn) return;
+    btn.classList.remove('d-none');
+    btn.disabled = false;
+    btn.dataset.fileName = fileName;
+    btn.title = `Guardar "${fileName}" en GitHub`;
+  },
+
+  disableUploadBtn() {
+    const btn = document.getElementById('btnCloudSave');
+    if (!btn) return;
+    btn.classList.add('d-none');
+    btn.disabled = true;
+    btn.dataset.fileName = '';
+  },
+
+  /* ── Modal de confirmación de nombre ── */
+  _openUploadModal(suggestedName) {
+    const input = document.getElementById('cloudFileNameInput');
+    if (input) input.value = suggestedName;
+    const modalEl = document.getElementById('cloudModal');
+    if (modalEl) {
+      this._cloudModalRef = this._cloudModalRef || new bootstrap.Modal(modalEl);
+      document.getElementById('cloudModalError')?.classList.add('d-none');
+      this._cloudModalRef.show();
+    }
+  },
+
+  /* ── Estado de loading en el botón del modal ── */
+  _setUploading(uploading) {
+    const btn = document.getElementById('btnCloudConfirm');
+    if (!btn) return;
+    btn.disabled = uploading;
+    btn.innerHTML = uploading
+      ? '<span class="spinner-border spinner-border-sm me-2"></span>Subiendo…'
+      : '<i class="bi bi-cloud-arrow-up me-2"></i>Subir';
+  },
+
+  _setModalError(msg) {
+    const el = document.getElementById('cloudModalError');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.toggle('d-none', !msg);
+  },
+
+  /* ── Petición PUT a la API de GitHub ── */
+  async uploadFile(fileName) {
+    const token = AuthEngine.getToken();
+    if (!token) {
+      this._setModalError('No hay token configurado. Ve a Configuración → Token GitHub.');
+      return;
+    }
+
+    const buffer = DataStore.rawBuffer;
+    if (!buffer) {
+      this._setModalError('No hay archivo cargado en el dashboard.');
+      return;
+    }
+
+    /* Asegura extensión válida */
+    const safeName = fileName.trim() || DataStore.fileName;
+    if (!safeName) { this._setModalError('El nombre del archivo es obligatorio.'); return; }
+
+    this._setUploading(true);
+    this._setModalError('');
+
+    try {
+      const base64Content = this._bufferToBase64(buffer);
+      const apiUrl = this.GITHUB_UPLOAD_BASE + encodeURIComponent(safeName);
+
+      /* Primero comprobamos si el archivo ya existe (para obtener su SHA y hacer update) */
+      let sha = null;
+      const checkRes = await fetch(apiUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      });
+      if (checkRes.ok) {
+        const existing = await checkRes.json();
+        sha = existing.sha;
+      }
+
+      const body = {
+        message: `Dashboard: ${sha ? 'Actualiza' : 'Sube'} reporte ${safeName}`,
+        content: base64Content,
+      };
+      if (sha) body.sha = sha;   // Requerido para actualizar un archivo existente
+
+      const putRes = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept':        'application/vnd.github.v3+json',
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!putRes.ok) {
+        const errData = await putRes.json().catch(() => ({}));
+        const detail  = errData.message || putRes.statusText;
+        if (putRes.status === 401) throw new Error('Token inválido o sin permisos (401). Verifica tu PAT.');
+        if (putRes.status === 422) throw new Error('Error de validación (422): ' + detail);
+        throw new Error(`Error ${putRes.status}: ${detail}`);
+      }
+
+      /* Éxito */
+      this._cloudModalRef?.hide();
+      AuthEngine._toast(`"${safeName}" subido exitosamente a GitHub ✓`, 'success');
+
+      /* Refresca la lista del Historial */
+      HistoryEngine._files = [];
+      const listEl = document.getElementById('listaReportesContainer');
+      if (listEl) listEl.innerHTML = '';
+      /* Si el modal de Historial está abierto, re-fetcha; si no, en la próxima apertura lo hará */
+      const modalHistorialEl = document.getElementById('modalHistorial');
+      if (modalHistorialEl && modalHistorialEl.classList.contains('show')) HistoryEngine.fetchFileList();
+
+    } catch (err) {
+      this._setModalError(err.message);
+    } finally {
+      this._setUploading(false);
+    }
+  },
+
+  /* ── Inicializa eventos ── */
+  init() {
+    /* Botón topbar "Guardar en la Nube" → abre modal */
+    document.getElementById('btnCloudSave')?.addEventListener('click', () => {
+      this._openUploadModal(DataStore.fileName || 'reporte.xlsx');
+    });
+
+    /* Confirmar subida desde el modal */
+    document.getElementById('btnCloudConfirm')?.addEventListener('click', () => {
+      const name = document.getElementById('cloudFileNameInput')?.value.trim();
+      if (!name) { this._setModalError('Ingresa un nombre para el archivo.'); return; }
+      this.uploadFile(name);
+    });
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   12.5 SAVE ENGINE — Botón "Guardar" del menú lateral (offcanvas)
+       Se habilita solo cuando hay un Excel cargado localmente.
+       Flujo: pide nuevo nombre → pide responsable → sube a
+       GitHub (REPORTES/) → notifica por Telegram.
+──────────────────────────────────────────────────────────── */
+const SaveEngine = {
+
+  GITHUB_UPLOAD_BASE: 'https://api.github.com/repos/alexchouriors/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/contents/REPORTES/',
+
+  _el(id) { return document.getElementById(id); },
+
+  /* ── Habilita el botón al cargar un Excel local ── */
+  enable(fileName) {
+    const btn  = this._el('btnMenuGuardar');
+    const icon = this._el('btnMenuGuardarIcon');
+    const text = this._el('btnMenuGuardarText');
+    if (!btn) return;
+
+    btn.disabled = false;
+    btn.classList.add('is-enabled');
+    btn.dataset.fileName = fileName || '';
+    btn.title = `Guardar "${fileName || ''}" en GitHub`;
+
+    if (icon) icon.className = 'bi bi-save2-fill';
+    if (text) text.innerHTML = 'Guardar <span class="badge-beta-guardar ms-1">(beta)</span>';
+  },
+
+  /* ── Vuelve al estado bloqueado por defecto ── */
+  disable() {
+    const btn  = this._el('btnMenuGuardar');
+    const icon = this._el('btnMenuGuardarIcon');
+    const text = this._el('btnMenuGuardarText');
+    if (!btn) return;
+
+    btn.disabled = true;
+    btn.classList.remove('is-enabled');
+    btn.dataset.fileName = '';
+    btn.title = '';
+
+    if (icon) icon.className = 'bi bi-lock-fill';
+    if (text) text.textContent = 'Guardar';
+  },
+
+  /* Convierte ArrayBuffer a string Base64 (mismo criterio que CloudEngine) */
+  _bufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  },
+
+  /* ── Sube el archivo en memoria a GitHub dentro de REPORTES/ ── */
+  async _uploadToGitHub(fileName) {
+    const token = AuthEngine.getToken();
+    if (!token) { alert('No hay token de GitHub configurado. Ve a Configuración → Token GitHub.'); return false; }
+
+    const buffer = DataStore.rawBuffer;
+    if (!buffer) { alert('No hay un archivo Excel cargado en el Dashboard.'); return false; }
+
+    try {
+      const base64Content = this._bufferToBase64(buffer);
+      const apiUrl = this.GITHUB_UPLOAD_BASE + encodeURIComponent(fileName);
+
+      /* Verifica si el archivo ya existe (para update con SHA) */
+      let sha = null;
+      const checkRes = await fetch(apiUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      });
+      if (checkRes.ok) {
+        const existing = await checkRes.json();
+        sha = existing.sha;
+      }
+
+      const body = {
+        message: `Dashboard: ${sha ? 'Actualiza' : 'Guarda'} reporte ${fileName}`,
+        content: base64Content,
+      };
+      if (sha) body.sha = sha;
+
+      const putRes = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept':        'application/vnd.github.v3+json',
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!putRes.ok) {
+        const errData = await putRes.json().catch(() => ({}));
+        const detail  = errData.message || putRes.statusText;
+        if (putRes.status === 401) throw new Error('Token inválido o sin permisos (401). Verifica tu PAT.');
+        if (putRes.status === 422) throw new Error('Error de validación (422): ' + detail);
+        throw new Error(`Error ${putRes.status}: ${detail}`);
+      }
+
+      return true;
+    } catch (err) {
+      alert(`No se pudo guardar el archivo:\n${err.message}`);
+      return false;
+    }
+  },
+
+  /* ── Flujo completo del botón "Guardar" ── */
+  async handleClick() {
+    /* 1) Nuevo nombre para guardar el archivo */
+    const nameInput = window.prompt('Ingrese el nuevo nombre para guardar el archivo');
+    if (nameInput === null) return;
+    const newName = nameInput.trim();
+    if (newName === '') return;
+
+    /* 2) Responsable de la acción: usuario con sesión activa */
+    const user = AuditEngine.getUser();
+    if (!user) return;
+
+    /* 3) Asegura extensión válida reutilizando la del archivo original si falta */
+    let safeName = newName;
+    if (!/\.(xlsx|xlsm|xls)$/i.test(safeName)) {
+      const origExt = (DataStore.fileName.match(/\.(xlsx|xlsm|xls)$/i) || [])[0] || '.xlsx';
+      safeName += origExt;
+    }
+
+    const btn = this._el('btnMenuGuardar');
+    const originalHTML = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Guardando…';
+    }
+
+    const ok = await this._uploadToGitHub(safeName);
+
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHTML;
+    }
+
+    if (!ok) return;
+
+    AuthEngine._toast(`"${safeName}" guardado correctamente ✓`, 'success');
+
+    /* 4) Notificación de auditoría por Telegram */
+    AuditEngine.notify({ action: 'guardar', user, fileName: safeName });
+
+    /* Invalida caché del Historial para reflejar el nuevo/actualizado archivo */
+    HistoryEngine._files = [];
+    const listEl = document.getElementById('listaReportesContainer');
+    if (listEl) listEl.innerHTML = '';
+    const modalHistorialEl = document.getElementById('modalHistorial');
+    if (modalHistorialEl && modalHistorialEl.classList.contains('show')) HistoryEngine.fetchFileList();
+  },
+
+  init() {
+    this._el('btnMenuGuardar')?.addEventListener('click', () => this.handleClick());
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   13. DELETE ENGINE — Eliminación de archivos en GitHub via API DELETE
+       Lista los archivos de /REPORTES y los elimina usando su SHA.
+──────────────────────────────────────────────────────────── */
+const DeleteEngine = {
+
+  GITHUB_API: 'https://api.github.com/repos/alexchouriors/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/contents/REPORTES',
+  VALID_EXTS: ['.xlsx', '.xlsm', '.xls'],
+
+  _files: [],
+
+  _el(id) { return document.getElementById(id); },
+
+  _ext(name) {
+    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls)$/);
+    return m ? '.' + m[1] : '';
+  },
+
+  _setState(state) {
+    const map = { loading: 'deleteLoading', error: 'deleteError', empty: 'deleteEmpty' };
+    Object.entries(map).forEach(([key, id]) => {
+      const el = this._el(id);
+      if (el) el.classList.toggle('d-none', key !== state);
+    });
+    const listEl = this._el('listaEliminarContainer');
+    if (listEl) listEl.classList.toggle('d-none', state !== 'list');
+  },
+
+  _showError(msg) {
+    const msgEl = this._el('deleteErrorMsg');
+    if (msgEl) msgEl.textContent = msg;
+    this._setState('error');
+  },
+
+  async fetchFileList() {
+    this._setState('loading');
+    try {
+      const headers = { 'Accept': 'application/vnd.github.v3+json' };
+      const token = AuthEngine.getToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(this.GITHUB_API, { headers });
+      if (!res.ok) {
+        const msg = res.status === 404
+          ? 'Repositorio o carpeta no encontrada (404).'
+          : res.status === 403
+            ? 'Límite de peticiones a la API de GitHub excedido. Intenta en unos minutos.'
+            : `Error ${res.status}: ${res.statusText}`;
+        throw new Error(msg);
+      }
+
+      const items = await res.json();
+      this._files = items.filter(i => i.type === 'file' && this.VALID_EXTS.includes(this._ext(i.name)));
+
+      if (this._files.length === 0) { this._setState('empty'); return; }
+      this._renderList();
+      this._setState('list');
+    } catch (err) {
+      this._showError(err.message || 'Error desconocido al contactar la API de GitHub.');
+    }
+  },
+
+  _renderList() {
+    const listEl = this._el('listaEliminarContainer');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    this._files.forEach((file, idx) => {
+      const item = document.createElement('div');
+      item.className = 'list-group-item d-flex align-items-center justify-content-between flex-wrap gap-2';
+      item.dataset.idx = idx;
+      item.innerHTML = `
+        <div class="d-flex align-items-center gap-2 text-truncate">
+          <i class="bi bi-file-earmark-spreadsheet text-success fs-5"></i>
+          <span class="text-truncate" title="${file.name}">${file.name}</span>
+        </div>
+        <button type="button" class="btn-delete-file" data-idx="${idx}" title="Eliminar ${file.name}">
+          <i class="bi bi-trash-fill"></i>Eliminar
+        </button>`;
+      item.querySelector('.btn-delete-file').addEventListener('click', () => this._confirmDelete(file, item));
+      listEl.appendChild(item);
+    });
+  },
+
+  async _confirmDelete(file, itemEl) {
+    const confirmed = window.confirm(`¿Estás seguro que quieres eliminar "${file.name}"?\n\nEsta acción es irreversible.`);
+    if (!confirmed) return;
+
+    /* Capa de seguridad/auditoría: usa el nombre del usuario con sesión activa */
+    const user = AuditEngine.getUser();
+    if (!user) return; // Sin sesión activa: se aborta la acción
+
+    const token = AuthEngine.getToken();
+    if (!token) { alert('No hay token de GitHub configurado. Ve a Configuración → Token GitHub.'); return; }
+
+    const btn = itemEl.querySelector('.btn-delete-file');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+
+    try {
+      const apiUrl = `${this.GITHUB_API}/${encodeURIComponent(file.name)}`;
+      const res = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept':        'application/vnd.github.v3+json',
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify({ message: `Dashboard: Elimina reporte ${file.name}`, sha: file.sha }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const detail  = errData.message || res.statusText;
+        if (res.status === 401) throw new Error('Token inválido o sin permisos (401).');
+        if (res.status === 422) throw new Error('Error de validación (422): ' + detail);
+        throw new Error(`Error ${res.status}: ${detail}`);
+      }
+
+      itemEl.style.transition = 'opacity .3s';
+      itemEl.style.opacity = '0';
+      setTimeout(() => itemEl.remove(), 300);
+      this._files = this._files.filter(f => f.sha !== file.sha);
+      if (this._files.length === 0) this._setState('empty');
+
+      AuthEngine._toast(`"${file.name}" eliminado correctamente ✓`, 'success');
+
+      /* Notificación de auditoría por Telegram (no bloquea la interfaz) */
+      AuditEngine.notify({ action: 'eliminar', user, fileName: file.name });
+
+      /* Invalida caché del HistoryEngine */
+      HistoryEngine._files = [];
+      const histListEl = document.getElementById('listaReportesContainer');
+      if (histListEl) histListEl.innerHTML = '';
+
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash-fill"></i>Eliminar'; }
+      alert(`No se pudo eliminar "${file.name}":\n${err.message}`);
+    }
+  },
+
+  init() {
+    const modalEl = document.getElementById('modalEliminar');
+    if (!modalEl) return;
+    modalEl.addEventListener('show.bs.modal', () => {
+      this._files = [];
+      const listEl = this._el('listaEliminarContainer');
+      if (listEl) listEl.innerHTML = '';
+      this.fetchFileList();
+    });
+    this._el('btnDeleteRetry')?.addEventListener('click', () => this.fetchFileList());
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   14. VIEW ENGINE — Carga dinámica de vistas (partials)
+       Descarga vistas/login.html y vistas/dashboard.html vía
+       fetch() y las inyecta dentro de #app-container ANTES de
+       que corra cualquier init() de los motores de arriba.
+       Esto es lo único que cambia respecto a tu index.html
+       monolítico original: el HTML ahora vive en archivos
+       separados, pero se ensambla en el DOM exactamente igual
+       que antes de que SessionEngine.init(), ThemeEngine.init(),
+       etc. intenten buscar sus botones con getElementById.
+──────────────────────────────────────────────────────────── */
+const ViewEngine = {
+  container() {
+    return document.getElementById('app-container');
+  },
+
+  async _fetchPartial(name) {
+    const res = await fetch(`vistas/${name}.html`);
+    if (!res.ok) {
+      throw new Error(`No se pudo cargar vistas/${name}.html (HTTP ${res.status})`);
+    }
+    return res.text();
+  },
+
+  /* Descarga login.html y dashboard.html en paralelo y los
+     inyecta en el orden correcto (login primero, dashboard
+     después, igual que en tu index.html original). */
+  async mount() {
+    const [loginHtml, dashboardHtml] = await Promise.all([
+      this._fetchPartial('login'),
+      this._fetchPartial('dashboard'),
+    ]);
+    this.container().innerHTML = loginHtml + dashboardHtml;
+  },
+};
+
+
+document.addEventListener('DOMContentLoaded', async () => {
+  /* 1) Ensambla el DOM a partir de vistas/*.html */
+  try {
+    await ViewEngine.mount();
+  } catch (err) {
+    console.error('[ViewEngine] Error al montar las vistas:', err);
+    const container = document.getElementById('app-container');
+    if (container) {
+      container.innerHTML =
+        '<div class="p-5 text-center text-danger">No se pudo cargar la interfaz. Revisa la consola y confirma que la carpeta vistas/ existe junto a index.html.</div>';
+    }
+    return; // No seguimos inicializando motores si no hay DOM que enganchar
+  }
+
+  /* 2) A partir de aquí, exactamente tu misma inicialización de siempre */
+  SessionEngine.init();
   ThemeEngine.init();
   UIController.init();
   GSheetsEngine.initModal();
   AbsenceEngine.initEvents();
+  HistoryEngine.init();
+  AuthEngine.init();
+  CloudEngine.init();
+  SaveEngine.init();
+  DeleteEngine.init();
 
   /*
     EXTENSIBILIDAD FUTURA:

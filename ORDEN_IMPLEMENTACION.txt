@@ -1,0 +1,137 @@
+ORDEN DE IMPLEMENTACIÓN — Migración a Vistas Dinámicas (Partials)
+==================================================================
+
+Archivos entregados en este paquete:
+  - index.html                     → nuevo shell maestro
+  - vistas/login.html              → partial completo (copiado de tu overlay original)
+  - vistas/dashboard.html          → ejemplo breve (topbar + offcanvas reales;
+                                      te falta pegar dashboardContent + modales)
+  - ViewEngine.snippet.js          → código a insertar en tu app.js
+  - delegacion-de-eventos.md       → explicación de por qué usar reenganche vs delegación
+
+PASO 1 — Respaldo
+------------------
+Copia tu index.html, app.js y style.css actuales a una carpeta /backup/ antes
+de tocar nada. Este refactor toca la estructura del DOM, no la lógica interna
+de tus motores, pero un respaldo cuesta 10 segundos.
+
+PASO 2 — Crear la carpeta vistas/
+----------------------------------
+Crea /vistas/ junto a tu index.html.
+
+PASO 3 — Extraer vistas/login.html
+------------------------------------
+Ya está hecho en este paquete (usa el archivo tal cual). Corresponde a las
+líneas 42-65 de tu index.html original (el bloque #loginOverlay).
+
+PASO 4 — Completar vistas/dashboard.html
+-------------------------------------------
+El archivo entregado ya trae el <header class="topbar"> y el offcanvas
+#sidebarMenu reales (líneas 70-206 de tu original). Te falta agregar, en el
+mismo archivo o en uno separado (ver Paso 5):
+  a) El bloque <main id="dashboardContent" class="dashboard-content d-none">
+     (línea 560 de tu original hasta donde cierra ese <main>) — QUITA la
+     clase "d-none": ya no la necesitas, porque el ViewEngine decide qué
+     vista se muestra reemplazando el HTML completo del contenedor.
+  b) Los 5 modales: #modalHistorial, #modalAuthConfig (o el que uses para
+     token), #modalCloudSave, #modalGsheets, #modalEliminar — cópialos tal
+     cual están, sin modificar sus IDs internos.
+
+PASO 5 — (Opcional) separar modales en su propio partial
+-----------------------------------------------------------
+Si dashboard.html te queda muy largo, crea vistas/modales.html con los 5
+modales y en tu ViewEngine._onViewLoaded('dashboard') agrega:
+
+    const modalesHtml = await this._fetchView('modales');
+    this.container.insertAdjacentHTML('beforeend', modalesHtml);
+
+...ANTES de llamar a UIController.init() y compañía, para que los botones
+que abren modales (data-bs-toggle="modal") ya tengan su target en el DOM.
+
+PASO 6 — Insertar ViewEngine en app.js
+------------------------------------------
+Pega el contenido de ViewEngine.snippet.js en tu app.js, ANTES de cualquier
+código que hoy se ejecute "al vuelo" al cargar el script (por ejemplo, si
+hoy tienes al final de app.js algo como:
+    document.getElementById('btnIniciarSesion').addEventListener(...)
+ese código se ROMPE porque ya no hay ningún botón en el DOM al momento de
+parsear app.js. Ese tipo de líneas se MUEVEN a los métodos initListeners()
+de cada motor, y esos métodos se llaman desde _onViewLoaded (ver Paso 7).
+
+PASO 7 — Convertir tus inicializaciones "al vuelo" en métodos initListeners()
+---------------------------------------------------------------------------
+Ejemplo de transformación necesaria en tu AuthEngine actual:
+
+  ANTES (se ejecuta una sola vez, al cargar app.js):
+    const btnAuthConfig = document.getElementById('btnAuthConfig');
+    btnAuthConfig.addEventListener('click', () => AuthEngine.openModal());
+
+  DESPUÉS (dentro del objeto AuthEngine, se llama desde ViewEngine):
+    AuthEngine.initListeners = function () {
+      document.getElementById('btnAuthConfig')
+        ?.addEventListener('click', () => AuthEngine.openModal());
+    };
+
+Repite esto para: UIController, AuthEngine, CloudEngine, HistoryEngine,
+AbsenceEngine, FilterEngine, SessionEngine y cualquier otro motor que hoy
+haga document.getElementById(...) fuera de una función.
+
+NOTA: usa siempre "?." (optional chaining) en estos initListeners — si por
+error un botón no está en la vista actual, evitas un crash en cascada que
+tumbe la inicialización de los motores siguientes.
+
+PASO 8 — Reemplazar el index.html original por el nuevo shell
+-------------------------------------------------------------
+Usa el index.html entregado. Nota que YA NO carga Bootstrap/estilos/PWA de
+forma distinta — solo cambia el <body>: ahora es #loadingOverlay + 
+#app-container, y el arranque llama a ViewEngine.loadView('login').
+
+PASO 9 — Conectar el flujo login → dashboard
+---------------------------------------------
+En tu SessionEngine, donde hoy ocultas el loginOverlay y muestras el
+dashboard (probablemente con clases d-none), cambia esa lógica por:
+
+    async confirmarNombre() {
+      // ... tu validación de nombre existente ...
+      sessionStorage.setItem('usuarioActivo', nombre);
+      TelegramEngine.notifySession('login', nombre);
+      await ViewEngine.loadView('dashboard');   // <-- reemplaza el toggle de clases
+    }
+
+Y en el logout (donde hoy haces location.reload()), puedes mantener el
+reload completo (más simple y sigue reseteando todo el estado en memoria) o,
+si prefieres una transición sin recarga de página:
+
+    async cerrarSesion() {
+      TelegramEngine.notifySession('logout', sessionStorage.getItem('usuarioActivo'));
+      sessionStorage.removeItem('usuarioActivo');
+      DataStore.reset();  // limpia el estado en memoria manualmente
+      await ViewEngine.loadView('login');
+    }
+
+  Si tu SaveEngine/AuditEngine dependen de mucho estado global disperso,
+  el location.reload() sigue siendo la opción MÁS SEGURA (cero riesgo de
+  estado fantasma). El ViewEngine no te obliga a abandonar esa estrategia
+  para el logout — solo la necesitas para no perder DataStore al cambiar
+  ENTRE vistas del dashboard (ej. login -> dashboard).
+
+PASO 10 — Probar el ciclo completo
+-----------------------------------
+1. Cargar index.html → debe verse SOLO vistas/login.html.
+2. Iniciar sesión → debe cargar vistas/dashboard.html y disparar
+   _onViewLoaded('dashboard') (revisa la consola: no debe haber ningún
+   "Cannot read properties of null").
+3. Cargar un Excel, verificar que KPIEngine/ChartEngine/TableEngine
+   pinten correctamente.
+4. Abrir el offcanvas y los 5 modales — confirmar que cada botón interno
+   sigue funcionando (esto valida que Paso 7 se hizo bien para todos los
+   motores).
+5. Cerrar sesión → confirmar notificación de Telegram y vuelta a login.
+
+PASO 11 — Actualizar el Service Worker (si cachea archivos por nombre)
+-----------------------------------------------------------------------
+Si tu sw.js (en CONFIG APP MOVIL/) tiene una lista explícita de archivos a
+cachear (cache.addAll([...])), agrega las nuevas rutas:
+  'vistas/login.html', 'vistas/dashboard.html' (y 'vistas/modales.html' si
+  aplicaste el Paso 5). Si no actualizas esto, la PWA en modo offline no
+  encontrará tus partials.
