@@ -125,6 +125,12 @@ document.addEventListener('DOMContentLoaded', () => {
       AuthEngine.bindExpiryLink();
       AuthEngine.checkExpiry();
     }
+    /* El contenedor de la lista (#listaReportesContainer) recién
+       existe en el DOM en este punto — es el momento correcto para
+       que UsuarioRules empiece a vigilarlo y oculte "Descargar" a
+       LECTOR en cada archivo que se renderice (ver comentario en
+       Usuario_Rules.js: attachToHistorialModal()). */
+    if (window.UsuarioRules) UsuarioRules.attachToHistorialModal();
 
     /* Fuerza un reflow del nodo recién insertado antes de mostrarlo:
        sin esto, Bootstrap calcula el layout del modal como si aún

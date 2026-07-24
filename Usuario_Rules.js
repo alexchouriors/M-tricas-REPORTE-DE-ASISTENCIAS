@@ -291,6 +291,24 @@ const UsuarioRules = {
     this._historialObserverIniciado = true;
   },
 
+  /** Punto de entrada público para cuando el modal de Historial recién
+      se inyecta en el DOM (ver LazyModals.js). Como #modalHistorial y
+      su #listaReportesContainer viven dentro de un <template> hasta
+      el primer clic en "Historial", intentar `_observeHistorialList()`
+      en el login (cuando se llama a applyUIPermissions()) siempre
+      fallaba en silencio: el contenedor todavía no existía. Sin el
+      observer activo, cuando HistoryEngine luego renderizaba la lista
+      de archivos de forma asíncrona, el enlace "Descargar" de cada
+      fila nunca se ocultaba para LECTOR — quedaba visible y funcional
+      para cualquiera. Este método debe llamarse justo después de
+      inyectar el modal (antes o después de HistoryEngine.init(), da
+      igual el orden) para que el observer quede activo a tiempo de
+      capturar esa primera renderización y todas las siguientes. */
+  attachToHistorialModal() {
+    this._observeHistorialList();
+    this._applyDownloadPermissionToList();
+  },
+
   /**
    * Función principal: aplica los permisos de INTERFAZ correspondientes
    * al usuario indicado. Debe llamarse:
