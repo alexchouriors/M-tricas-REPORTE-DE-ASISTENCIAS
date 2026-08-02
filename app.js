@@ -118,6 +118,12 @@ const DataStore = {
   /* Estado de la UI */
   includeExcluidos: false,
 
+  /* true = la vista principal está proyectando DataStore.comparisonBaseline
+     (ver TrendViewEngine) en vez de rawMain/rawExcluidos. NO destruye el
+     Excel original: rawMain/rawExcluidos siguen intactos, solo cambia
+     qué devuelve getActiveMain() mientras esta bandera esté activa. */
+  viewingTrend: false,
+
   /* Filtros activos */
   filters: {
     group:    '',
@@ -129,6 +135,14 @@ const DataStore = {
 
   /* Devuelve los registros activos aplicando la regla de excluidos */
   getActiveMain() {
+    /* Vista de Tendencia: reemplaza TEMPORALMENTE lo que ven
+       TableEngine/ChartEngine/KPIEngine (todos consumen esta misma
+       función), sin tocar rawMain/rawExcluidos. Se desactiva con
+       TrendViewEngine.exitTrendView(), que vuelve a mostrar esta
+       misma rama de código su comportamiento normal de siempre. */
+    if (this.viewingTrend && this.comparisonBaseline) {
+      return this.comparisonBaseline.rawMain;
+    }
     if (this.includeExcluidos) {
       // Mezcla registros principales con excluidos
       return [...this.rawMain, ...this.rawExcluidos];
@@ -1325,7 +1339,12 @@ const ChartEngine = {
     });
   },
 
-  /* ── Rankings de grupos — barras verticales Chart.js ── */
+  /* ── Ranking integral de grupos — barras horizontales agrupadas ──
+     Un solo gráfico que reemplaza los antiguos "Top Asistencia" y
+     "Mayor Ausentismo": muestra TODOS los grupos ordenados de mayor
+     a menor asistencia, con dos barras horizontales por grupo
+     (asistencia % en verde, ausentismo % en rojo), para ver el
+     panorama comparativo completo de un solo vistazo. */
   renderRankings(kpis) {
     const allGroups = Object.entries(kpis.byGroup).map(([name, data]) => {
       // Asistentes reales a célula = SI + nuevos en célula + nuevos en servicio
@@ -1339,55 +1358,76 @@ const ChartEngine = {
         .replace(/Ministr[ao]s?\s*/i, '')
         .replace(/Lider[a]?s?\s*/i, '')
         .trim()
-        .substring(0, 22) || name.substring(0, 22);
+        .substring(0, 26) || name.substring(0, 26);
 
       return { name, short, asistentes, ausentes, total, pctAsist, pctAus };
     });
 
-    // Top asistencia: mayor % de asistencia primero
-    const top    = [...allGroups].sort((a,b) => b.pctAsist - a.pctAsist).slice(0, 5);
-    // Mayor ausentismo: mayor % de ausencia primero
-    const bottom = [...allGroups].sort((a,b) => b.pctAus   - a.pctAus  ).slice(0, 5);
+    // Ordenado de mayor a menor asistencia — un único ranking integral
+    const ranked = [...allGroups].sort((a, b) => b.pctAsist - a.pctAsist);
 
-    this._renderRankChart('chartRankTop',    top,    'pctAsist', '#22c55e', 'rgba(34,197,94,.15)');
-    this._renderRankChart('chartRankBottom', bottom, 'pctAus',   '#ef4444', 'rgba(239,68,68,.15)');
+    this._renderCombinedRankChart('chartRankCombined', ranked);
   },
 
-  /* Renderiza un ranking como gráfico de barras verticales */
-  _renderRankChart(canvasId, items, pctField, color, bgColor) {
+  /* Renderiza el ranking integral como barras horizontales agrupadas
+     (asistencia vs ausentismo, lado a lado, por grupo). */
+  _renderCombinedRankChart(canvasId, items) {
     this.destroy(canvasId);
     const ctx = document.getElementById(canvasId);
     if (!ctx) return;
 
-    const isAttendance = (pctField === 'pctAsist');
-    const label = isAttendance ? 'Asistencia %' : 'Ausentismo %';
+    const colorAsist   = '#22c55e';
+    const bgAsist       = 'rgba(34,197,94,.15)';
+    const colorAus      = '#ef4444';
+    const bgAus          = 'rgba(239,68,68,.15)';
+
+    // Altura dinámica: más grupos → canvas más alto (evita apretujar barras)
+    const canvasEl = document.getElementById(canvasId);
+    if (canvasEl) canvasEl.style.height = Math.max(320, items.length * 38) + 'px';
 
     this.instances[canvasId] = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: items.map(i => i.short),
-        datasets: [{
-          label,
-          data:  items.map(i => i[pctField]),
-          backgroundColor: items.map(() => bgColor),
-          borderColor:     items.map(() => color),
-          borderWidth: 2,
-          borderRadius: 6,
-          borderSkipped: false,
-          hoverBackgroundColor: color + '88',
-        }],
+        datasets: [
+          {
+            label: 'Asistencia %',
+            data: items.map(i => i.pctAsist),
+            backgroundColor: bgAsist,
+            borderColor: colorAsist,
+            borderWidth: 2,
+            borderRadius: 5,
+            borderSkipped: false,
+            hoverBackgroundColor: colorAsist + '88',
+          },
+          {
+            label: 'Ausentismo %',
+            data: items.map(i => i.pctAus),
+            backgroundColor: bgAus,
+            borderColor: colorAus,
+            borderWidth: 2,
+            borderRadius: 5,
+            borderSkipped: false,
+            hoverBackgroundColor: colorAus + '88',
+          },
+        ],
       },
       options: {
         ...this.baseOptions(),
+        indexAxis: 'y',
         plugins: {
           ...this.baseOptions().plugins,
-          legend: { display: false },
+          legend: {
+            display: true,
+            position: 'top',
+            labels: { color: Chart.defaults.color, font: { family: 'Outfit', size: 11 }, boxWidth: 14 },
+          },
           tooltip: {
             ...this.baseOptions().plugins.tooltip,
             callbacks: {
               label: (ctx) => {
                 const item = items[ctx.dataIndex];
-                return isAttendance
+                return ctx.dataset.label === 'Asistencia %'
                   ? ` ${item.pctAsist}% asistencia (${item.asistentes}/${item.total})`
                   : ` ${item.pctAus}% ausencia (${item.ausentes}/${item.total})`;
               },
@@ -1396,15 +1436,6 @@ const ChartEngine = {
         },
         scales: {
           x: {
-            grid: { display: false },
-            ticks: {
-              color: Chart.defaults.color,
-              font: { family: 'Outfit', size: 10 },
-              maxRotation: 30,
-              minRotation: 15,
-            },
-          },
-          y: {
             beginAtZero: true,
             max: 100,
             grid: { color: 'rgba(255,255,255,.04)' },
@@ -1412,6 +1443,13 @@ const ChartEngine = {
               color: Chart.defaults.color,
               font: { family: 'Outfit', size: 10 },
               callback: v => v + '%',
+            },
+          },
+          y: {
+            grid: { display: false },
+            ticks: {
+              color: Chart.defaults.color,
+              font: { family: 'Outfit', size: 10 },
             },
           },
         },
@@ -1425,7 +1463,7 @@ const ChartEngine = {
     this.renderFunnel(kpis);
     this.renderBarGroup(kpis);
     this.renderStacked(kpis);
-    this.renderRankings(kpis);  // uses chartRankTop / chartRankBottom canvases
+    this.renderRankings(kpis);  // uses chartRankCombined canvas
   },
 };
 
@@ -1533,6 +1571,7 @@ const TableEngine = {
         <td>${i+1}</td>
         <td>${r.nombre}</td>
         <td style="color:var(--text-dim);font-size:11px">${r.grupo.replace(/Ministr[ao]s?\s*/i,'').substring(0,28)}</td>
+        <td>${this.waLink(r.telefono)}</td>
         <td>${celulaDisplay}</td>
         <td>${servicioDisplay}</td>
         <td>${tipoTag}</td>
@@ -1869,6 +1908,70 @@ const UIController = {
   showDashboard() {
     document.getElementById('emptyState')?.classList.add('d-none');
     document.getElementById('dashboardContent')?.classList.remove('d-none');
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   7A. INITIAL LOAD OVERLAY — "Cargando su experiencia personalizada"
+   Overlay independiente de UIController.showLoading()/#loadingOverlay
+   (ese sigue igual, se usa para procesar archivos manuales). Este
+   módulo solo controla #initialLoadOverlay, acoplado ÚNICAMENTE al
+   flujo de auto-carga del reporte predeterminado + tendencia guardada
+   que corre justo después del login (ver SessionEngine más abajo:
+   AutoLoadEngine.loadDefaultFile().then(() => DbDefaultEngine...)).
+   No modifica la lógica de AutoLoadEngine/DbDefaultEngine: solo
+   envuelve esa misma llamada con show()/setProgress()/complete(). */
+const InitialLoadOverlay = {
+  _el: null,
+  _fillEl: null,
+  _hideTimer: null,
+
+  _ensureEl() {
+    if (!this._el) {
+      this._el = document.getElementById('initialLoadOverlay');
+      this._fillEl = document.getElementById('initialLoadFill');
+    }
+    return this._el;
+  },
+
+  /* Aparece de inmediato y arranca la barra en un pequeño % (feedback
+     instantáneo de que "ya empezó a pasar algo"), en vez de en 0. */
+  show() {
+    const el = this._ensureEl();
+    if (!el) return;
+    clearTimeout(this._hideTimer);
+    el.classList.remove('initial-load-hidden');
+    el.classList.remove('d-none');
+    this.setProgress(8);
+  },
+
+  /* Actualiza el ancho de la barra (0–100). Se llama en cada paso
+     real del proceso (reporte cargado, tendencia aplicada, etc.),
+     así que refleja avance real y no una animación falsa/indefinida. */
+  setProgress(pct) {
+    if (!this._ensureEl() || !this._fillEl) return;
+    const clamped = Math.max(0, Math.min(100, pct));
+    this._fillEl.style.width = clamped + '%';
+  },
+
+  /* Completa la barra al 100% y desvanece el overlay con fade-out
+     suave (transición CSS de opacity). SIEMPRE debe llamarse al
+     terminar el proceso, tanto en éxito como en error, para no dejar
+     al usuario con el overlay trabado en pantalla. */
+  complete() {
+    const el = this._ensureEl();
+    if (!el) return;
+    this.setProgress(100);
+
+    clearTimeout(this._hideTimer);
+    this._hideTimer = setTimeout(() => {
+      el.classList.add('initial-load-hidden'); // dispara la transición de opacity en CSS
+      setTimeout(() => {
+        el.classList.add('d-none');
+        this.setProgress(0); // listo por si se vuelve a usar (p. ej. otro login en la misma pestaña)
+      }, 500); // debe coincidir con la duración de la transición definida en style.css
+    }, 250); // breve pausa para que se alcance a ver la barra llena al 100%
   },
 };
 
@@ -2515,6 +2618,44 @@ const AuditEngine = {
        del usuario en sessionStorage y notifica por Telegram
        cada inicio/cierre de sesión.
 ──────────────────────────────────────────────────────────── */
+/* ────────────────────────────────────────────────────────────
+   9.5 CLOCK ENGINE — reloj en tiempo real de la topbar
+   Módulo pequeño e independiente: solo pinta #sessionClock cada
+   segundo. Arranca únicamente desde SessionEngine._updateSessionUI()
+   (después de un login exitoso o al restaurar sesión), nunca antes.
+──────────────────────────────────────────────────────────── */
+const ClockEngine = {
+  _intervalId: null,
+
+  _format(date) {
+    const dia = date.toLocaleDateString('es-PE', { weekday: 'long' });
+    const diaCap = dia.charAt(0).toUpperCase() + dia.slice(1);
+    const fecha = date.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+    const hora = date.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    return `${diaCap}, ${fecha} · ${hora}`;
+  },
+
+  _tick() {
+    const el = document.getElementById('sessionClock');
+    if (!el) return; // el bloque puede estar oculto/ausente antes del login
+    el.textContent = this._format(new Date());
+  },
+
+  /* Idempotente: si ya hay un interval corriendo, no crea otro
+     (evita duplicar timers si se llama más de una vez por error). */
+  start() {
+    if (this._intervalId) return;
+    this._tick();
+    this._intervalId = setInterval(() => this._tick(), 1000);
+  },
+
+  stop() {
+    clearInterval(this._intervalId);
+    this._intervalId = null;
+  },
+};
+
+
 const SessionEngine = {
 
   STORAGE_KEY: 'ccrm_dashboard_user',
@@ -2676,16 +2817,36 @@ const SessionEngine = {
     }
 
     /* Auto-carga del archivo predeterminado (config.json → REPORTES/<archivo>),
-       fire-and-forget: no bloquea el fade-out del overlay ni el login en sí.
-       Inmediatamente DESPUÉS de que termine de cargar (encadenado con .then,
-       no en paralelo), se revisa si hay una tendencia predeterminada guardada
-       en localStorage (ver DbDefaultEngine) y se aplica automáticamente. */
+       fire-and-forget: no bloquea el fade-out del overlay de login ni el
+       login en sí. Inmediatamente DESPUÉS de que termine de cargar
+       (encadenado con .then, no en paralelo), se revisa si hay una
+       tendencia predeterminada guardada en localStorage (ver
+       DbDefaultEngine) y se aplica automáticamente.
+
+       InitialLoadOverlay envuelve esta misma llamada para mostrar la
+       pantalla "Cargando su experiencia personalizada" con una barra
+       de progreso real: 8% al empezar, 65% cuando el reporte ya
+       cargó, 100% cuando la tendencia (si había una guardada) también
+       terminó — y se desvanece con fade-out. Se usa .finally() para
+       garantizar que el overlay SIEMPRE desaparezca, incluso si algo
+       falla, sin cambiar en nada el comportamiento de
+       AutoLoadEngine/DbDefaultEngine. */
     if (typeof AutoLoadEngine !== 'undefined') {
-      AutoLoadEngine.loadDefaultFile().then(() => {
-        if (typeof DbDefaultEngine !== 'undefined') {
-          DbDefaultEngine.applyStoredTrendIfAny();
-        }
-      });
+      InitialLoadOverlay.show();
+
+      AutoLoadEngine.loadDefaultFile()
+        .then(() => {
+          InitialLoadOverlay.setProgress(65);
+          if (typeof DbDefaultEngine !== 'undefined') {
+            return DbDefaultEngine.applyStoredTrendIfAny();
+          }
+        })
+        .catch(err => {
+          console.error('[SessionEngine] Error durante la auto-carga de la experiencia personalizada:', err);
+        })
+        .finally(() => {
+          InitialLoadOverlay.complete();
+        });
     }
 
     /* Desvanece el overlay y revela el dashboard */
@@ -2800,10 +2961,33 @@ const SessionEngine = {
     window.location.reload();
   },
 
+  /* Icono por rol (LECTOR ⭐ / EDITOR ⭐⭐ / MAESTRO 👑) */
+  _ROLE_ICONS: { LECTOR: '⭐', EDITOR: '⭐⭐', MAESTRO: '👑' },
+  _ROLE_CLASS: { LECTOR: 'role-lector', EDITOR: 'role-editor', MAESTRO: 'role-maestro' },
+
   /* ── Actualiza referencias visuales del usuario activo (si existieran) ── */
   _updateSessionUI(name) {
     const label = this._el('sessionUserLabel');
     if (label) label.textContent = name;
+
+    /* Icono de rol: reutiliza UsuarioRules._resolveRole(), el mismo
+       método que ya usa app.js directamente en otro punto (ver
+       DbDefaultEngine más abajo) — no se modifica Usuario_Rules.js. */
+    const roleIcon = this._el('sessionRoleIcon');
+    if (roleIcon && window.UsuarioRules) {
+      const role = window.UsuarioRules._resolveRole(name);
+      roleIcon.textContent = this._ROLE_ICONS[role] || '';
+      roleIcon.className = `session-role-icon ${this._ROLE_CLASS[role] || ''}`;
+      roleIcon.title = `Rol: ${role}`;
+    }
+
+    /* Revela el bloque (usuario + rol + reloj) — permanece oculto
+       hasta este punto, que solo se alcanza tras un login exitoso o
+       al restaurar una sesión ya activa (ver init() más abajo). */
+    this._el('sessionInfoBlock')?.classList.remove('d-none');
+
+    /* Arranca el reloj en tiempo real de la topbar (idempotente) */
+    ClockEngine.start();
   },
 
   init() {
@@ -3524,6 +3708,110 @@ const TrendEngine = {
 
   init() {
     this._el('btnClearTrendBaseline')?.addEventListener('click', () => this.clearBaseline());
+  },
+};
+
+
+/* ────────────────────────────────────────────────────────────
+   10.5 TREND VIEW ENGINE — botón "Cargar Tendencia" de la Top Bar
+   ────────────────────────────────────────────────────────────
+   Diferencia clave con TrendEngine.setBaseline(): ese método trae un
+   archivo del HISTORIAL (descarga remota desde GitHub) y lo usa solo
+   para calcular flechas/% de comparación (DataStore.comparisonBaseline
+   + TrendEngine.render()), sin cambiar qué se ve en las tablas/gráficos
+   principales. TrendViewEngine, en cambio, deja elegir un Excel LOCAL
+   (mismo flujo de carga que "Cargar Excel": un <input type="file">) y
+   PROYECTA esos datos como si fueran el reporte activo en TableEngine,
+   ChartEngine y KPIEngine — sin tocar rawMain/rawExcluidos.
+
+   Cómo queda no-destructivo:
+   - Reutiliza ExcelParser.parseStandalone() (el mismo parseo aislado
+     y con RBAC obligatorio que ya usa TrendEngine.setBaseline()), NO
+     ExcelParser.parse() (ese sí sobrescribiría DataStore.rawMain).
+   - Guarda el resultado en DataStore.comparisonBaseline (la MISMA
+     propiedad que usa TrendEngine) y activa DataStore.viewingTrend.
+   - DataStore.getActiveMain() — el único punto que leen
+     TableEngine/ChartEngine/KPIEngine — devuelve ese dataset mientras
+     viewingTrend esté activo, y vuelve a rawMain/rawExcluidos en
+     cuanto exitTrendView() lo desactiva. Ningún motor de UI necesita
+     saber que existe una "vista de tendencia": para ellos es un
+     array de registros como cualquier otro.
+──────────────────────────────────────────────────────────── */
+const TrendViewEngine = {
+
+  _loading: false,
+
+  /* Carga un Excel local y lo proyecta en la vista principal como
+     Tendencia. No modifica DataStore.rawMain/rawExcluidos. */
+  async loadLocalFile(file) {
+    if (this._loading) return;
+    this._loading = true;
+    UIController.showLoading(true);
+
+    try {
+      const buffer   = await file.arrayBuffer();
+      const workbook = await WorkerEngine.parseWorkbookAsync(buffer); // mismo Web Worker que "Cargar Excel"
+      const parsed   = ExcelParser.parseStandalone(workbook); // parseo aislado, RBAC obligatorio y fail-closed
+
+      DataStore.comparisonBaseline = { fileName: file.name, rawMain: parsed.rawMain };
+      DataStore.viewingTrend = true;
+
+      FilterEngine.reset();     // limpia filtros de la vista anterior (grupo/estado/etc.)
+      UIController.refresh();
+      UIController.showDashboard();
+
+      const titleEl = document.getElementById('reportTitle');
+      if (titleEl) titleEl.textContent = `Tendencia — ${file.name}`;
+      this._toggleBanner(true, file.name);
+
+      AuthEngine._toast(`Viendo tendencia de "${file.name}" ✓`, 'success');
+
+      /* Notificación de auditoría por Telegram (fire-and-forget) */
+      const auditUser = AuditEngine.getUser();
+      if (auditUser) {
+        AuditEngine.notify({ action: 'cargar_tendencia_local', user: auditUser, fileName: file.name });
+      }
+    } catch (err) {
+      console.error('[TrendViewEngine] Error al cargar la tendencia:', err);
+      alert(`No se pudo cargar la tendencia:\n${err.message}`);
+    } finally {
+      this._loading = false;
+      UIController.showLoading(false);
+    }
+  },
+
+  /* Vuelve a la vista normal (el Excel general ya cargado en
+     DataStore.rawMain). No borra comparisonBaseline: si el usuario
+     tenía además una comparativa de flechas/% activa desde el
+     Historial, sigue disponible tal cual estaba. */
+  exitTrendView() {
+    DataStore.viewingTrend = false;
+    UIController.refresh();
+
+    const titleEl = document.getElementById('reportTitle');
+    if (titleEl) titleEl.textContent = DataStore.reportTitle || DataStore.fileName;
+    this._toggleBanner(false);
+
+    AuthEngine._toast('Volviste a la vista normal', 'info');
+  },
+
+  _toggleBanner(show, fileName) {
+    const banner = document.getElementById('trendViewBanner');
+    if (!banner) return;
+    banner.classList.toggle('d-none', !show);
+    if (show) {
+      const nameEl = document.getElementById('trendViewFileName');
+      if (nameEl) nameEl.textContent = fileName;
+    }
+  },
+
+  init() {
+    document.getElementById('fileInputTrend')?.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) this.loadLocalFile(file);
+      e.target.value = ''; // permite volver a elegir el mismo archivo después
+    });
+    document.getElementById('btnExitTrendView')?.addEventListener('click', () => this.exitTrendView());
   },
 };
 
@@ -4373,9 +4661,19 @@ const DbDefaultEngine = {
    */
   async applyStoredTrendIfAny() {
     try {
+      /* Igual que HistoryEngine.fetchFileList(): se agrega el token si
+         está disponible para usar el límite de 5000 peticiones/hora de
+         la API autenticada en vez del límite de 60/hora sin autenticar
+         (compartido por IP entre todos los que usan el dashboard) — sin
+         esto, estas lecturas podían fallar en silencio con 403 "rate
+         limit exceeded" apenas hubiera uso simultáneo, sin mostrar
+         ningún error visible al usuario. */
+      const token = AuthEngine.getToken();
+      const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+
       const cfgRes = await fetch(this.GITHUB_CONTENTS_BASE + 'config.json', {
         cache: 'no-store',
-        headers: { 'Accept': 'application/vnd.github.v3.raw' },
+        headers: { 'Accept': 'application/vnd.github.v3.raw', ...authHeader },
       });
       if (!cfgRes.ok) return;
 
@@ -4388,7 +4686,7 @@ const DbDefaultEngine = {
          guarda el nombre, igual que hace con archivo_predeterminado. */
       const fileRes = await fetch(
         this.GITHUB_CONTENTS_BASE + 'REPORTES/' + encodeURIComponent(fileName),
-        { cache: 'no-store', headers: { 'Accept': 'application/vnd.github.v3+json' } }
+        { cache: 'no-store', headers: { 'Accept': 'application/vnd.github.v3+json', ...authHeader } }
       );
       if (!fileRes.ok) return;
       const fileMeta = await fileRes.json();
@@ -4406,9 +4704,16 @@ const DbDefaultEngine = {
     const label      = this._el('dbDefaultCurrentLabel');
     const trendLabel = this._el('dbDefaultCurrentTrendLabel');
     try {
+      /* Usa el token de sesión del modal si ya se ingresó, y si no,
+         cae al token persistido de AuthEngine — mismo motivo que en
+         applyStoredTrendIfAny(): evitar el límite de 60 peticiones/hora
+         sin autenticar. */
+      const token = this._sessionToken || AuthEngine.getToken();
+      const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+
       const res = await fetch(this.GITHUB_CONTENTS_BASE + 'config.json', {
         cache: 'no-store',
-        headers: { 'Accept': 'application/vnd.github.v3.raw' },
+        headers: { 'Accept': 'application/vnd.github.v3.raw', ...authHeader },
       });
       if (!res.ok) {
         this._currentDefault = '';
@@ -4825,10 +5130,16 @@ const DbDefaultEngine = {
 /* ────────────────────────────────────────────────────────────
    13.6 AUTO LOAD ENGINE — Carga automática del archivo predeterminado
        Se dispara justo después de un login exitoso (ver SessionEngine).
-       Hace un fetch silencioso a config.json en la raíz del repo y,
-       si existe, descarga y carga ese archivo con el mismo flujo que
-       usa HistoryEngine._loadFile(), sin requerir token (lectura
-       pública de la API de contenidos de GitHub).
+       Hace un fetch a config.json en la raíz del repo y, si existe,
+       descarga y carga ese archivo con el mismo flujo que usa
+       HistoryEngine._loadFile(). Agrega el token de AuthEngine cuando
+       está disponible (igual que HistoryEngine.fetchFileList): la API
+       de contenidos de GitHub es de lectura pública, pero sin token
+       comparte un límite de solo 60 peticiones/hora POR IP entre todos
+       los usuarios del dashboard — con varias personas usándolo desde
+       la misma red, ese límite se agotaba fácilmente y estas lecturas
+       empezaban a fallar en silencio (403), dejando de autocargar el
+       archivo/tendencia predeterminados sin ningún error visible.
 ──────────────────────────────────────────────────────────── */
 const AutoLoadEngine = {
 
@@ -4836,10 +5147,13 @@ const AutoLoadEngine = {
 
   async loadDefaultFile() {
     try {
-      /* Lee config.json de forma silenciosa (si no existe, no hace nada) */
+      const token = AuthEngine.getToken();
+      const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+      /* Lee config.json (si no existe, no hace nada) */
       const cfgRes = await fetch(this.GITHUB_CONTENTS_BASE + 'config.json', {
         cache: 'no-store',
-        headers: { 'Accept': 'application/vnd.github.v3.raw' },
+        headers: { 'Accept': 'application/vnd.github.v3.raw', ...authHeader },
       });
       if (!cfgRes.ok) return;
 
@@ -4866,10 +5180,13 @@ const AutoLoadEngine = {
    */
   async loadFileByName(fileName) {
     try {
+      const token = AuthEngine.getToken();
+      const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
+
       /* 1) Obtiene la metadata del archivo (necesitamos su download_url) */
       const fileRes = await fetch(
         this.GITHUB_CONTENTS_BASE + 'REPORTES/' + encodeURIComponent(fileName),
-        { cache: 'no-store', headers: { 'Accept': 'application/vnd.github.v3+json' } }
+        { cache: 'no-store', headers: { 'Accept': 'application/vnd.github.v3+json', ...authHeader } }
       );
       if (!fileRes.ok) return false;
       const fileMeta = await fileRes.json();
@@ -4921,6 +5238,7 @@ document.addEventListener('DOMContentLoaded', () => {
   DeleteEngine.init();
   DbDefaultEngine.init();
   TrendEngine.init();
+  TrendViewEngine.init();
 
   /*
     EXTENSIBILIDAD FUTURA:

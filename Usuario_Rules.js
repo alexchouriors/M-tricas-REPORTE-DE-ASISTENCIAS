@@ -127,6 +127,7 @@ const PERMISOS = {
   GUARDAR_NUBE:           'guardarEnNube',         // btnCloudSave
   CONFIGURAR_TOKEN:       'configurarTokenGitHub', // btnAuthConfig
   CARGA_PREDETERMINADA:   'cargaPredeterminada',   // btnAbrirDbDefault
+  CARGAR_TENDENCIA_LOCAL: 'cargarTendenciaLocal',  // btnCargarTendencia (Top Bar)
   FILTRAR_VISTAS:         'filtrarVistas',         // barra de filtros + botón "Limpiar filtros"
   CAMBIAR_TEMA:           'cambiarTemaVisual',     // btnTheme (siempre permitido — ver nota abajo)
   MODO_ESCRITORIO:        'forzarModoEscritorio',  // btnDesktopView (siempre permitido — ver nota abajo)
@@ -155,10 +156,15 @@ const ROLE_PERMISSIONS = {
     PERMISOS.GUARDAR_NUBE,
     PERMISOS.CONFIGURAR_TOKEN,
     PERMISOS.CARGA_PREDETERMINADA,
+    PERMISOS.CARGAR_TENDENCIA_LOCAL,
     PERMISOS.FILTRAR_VISTAS,
   ],
 
-  /* LECTOR: acceso restringido — sin nube, sin GSheets, sin eliminar. */
+  /* LECTOR: acceso restringido — sin nube, sin GSheets, sin eliminar.
+     CARGAR_TENDENCIA_LOCAL queda FUERA a propósito (posición
+     conservadora): si se quiere que LECTOR también pueda usar
+     "Cargar Tendencia", basta con agregar
+     PERMISOS.CARGAR_TENDENCIA_LOCAL a este array. */
   LECTOR: [
     PERMISOS.CARGAR_GITHUB,
     PERMISOS.CONFIGURAR_TOKEN,
@@ -182,6 +188,7 @@ const PERMISO_A_IDS = {
   [PERMISOS.GUARDAR_NUBE]:         ['btnCloudSave'],
   [PERMISOS.CONFIGURAR_TOKEN]:     ['btnAuthConfig'],
   [PERMISOS.CARGA_PREDETERMINADA]: ['btnAbrirDbDefault'],
+  [PERMISOS.CARGAR_TENDENCIA_LOCAL]: ['btnCargarTendencia'],
   [PERMISOS.FILTRAR_VISTAS]:       ['filterGroup', 'filterEstado', 'filterCelula', 'filterServicio', 'filterNuevo', 'btnResetFilters'],
   [PERMISOS.ELIMINAR]:             ['btnAbrirEliminar'],
 };

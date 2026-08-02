@@ -83,24 +83,24 @@ const ACCESS_RULES = {
     'Ministra Magalis, Edith y Alexandro',
   ],
 
-  /* ── Grupo "Lideres Yensi y Sorenis" ──
+  /* ── Grupo "LIDERES YENSI, SORENNYS Y YELSSY" ──
      Celda combinada/centrada A578:E578 del Excel:
-       - "Lideres Yensi y Sorenis"
-       - "LIDERES YENSI Y SORENIS"
+       - "LIDERES YENSI, SORENNYS Y YELSSY"
+       - "LIDERES YENSI, SORENNYS Y YELSSY"
      NOTA: los usuarios reales en USUARIOS.JS son "SORENNIS" y "YELSSY"
      (no "SORENNYS"); se usan esos nombres exactos para que el login
      y la regla de acceso coincidan.                                 */
   YENSI: [
-    'Lideres Yensi y Sorenis',
-    'LIDERES YENSI Y SORENIS',
+    'LIDERES YENSI, SORENNYS Y YELSSY',
+    'LIDERES YENSI, SORENNYS Y YELSSY',
   ],
   SORENNYS: [
-    'Lideres Yensi y Sorenis',
-    'LIDERES YENSI Y SORENIS',
+    'LIDERES YENSI, SORENNYS Y YELSSY',
+    'LIDERES YENSI, SORENNYS Y YELSSY',
   ],
   YELSSY: [
-    'Lideres Yensi y Sorenis',
-    'LIDERES YENSI Y SORENIS',
+    'LIDERES YENSI, SORENNYS Y YELSSY',
+    'LIDERES YENSI, SORENNYS Y YELSSY',
   ],
 
   /* ── Grupo "LIDER Josefa y Dayana, FRANGLIS" ──
@@ -122,7 +122,22 @@ const ACCESS_RULES = {
   PASTORA: 'ALL',
   MASTER:  'ALL',
 
-  /* Usuarios de USUARIOS.JS aún sin regla asignada — hoy quedan en
-     fail-closed (dashboard vacío) hasta que se les asigne grupo o 'ALL':
-     "PASTOR CARLOS D", "PASTORA GÉNESIS", "ANAIS", "ATHAIS", "JACKSON" */
+  /* ── Grupo "Lideres Jackson, Athais y Anais" ── */
+  JACKSON: [
+    'Lideres Jackson, Athais y Anais',
+  ],
+  ANAIS: [
+    'Lideres Jackson, Athais y Anais',
+  ],
+  ATHAIS: [
+    'Lideres Jackson, Athais y Anais',
+  ],
+
+  /* ── Grupo "Pastores Carlos Duarte y Génesis" ── */
+  'PASTOR CARLOS D': [
+    'Pastores Carlos Duarte y Génesis',
+  ],
+  'PASTORA GÉNESIS': [
+    'Pastores Carlos Duarte y Génesis',
+  ],
 };
