@@ -263,10 +263,28 @@
         <i class="bi bi-clock-history me-2"></i>Historial
       </button>
 
+      <!-- Cambiar Sesión (Nuevo) — abre el modal de cambio de usuario -->
+      <button type="button" class="btn-menu-switch" id="btnAbrirCambiarSesion"
+              data-bs-dismiss="offcanvas"
+              data-bs-toggle="modal" data-bs-target="#modalCambiarSesion">
+        <i class="bi bi-person-gear me-2"></i>Cambiar Sesión
+      </button>
+
       <!-- Cerrar sesión -->
       <button type="button" class="btn-menu-logout" id="btnCerrarSesion">
         <i class="bi bi-box-arrow-right me-2"></i>Cerrar sesión
       </button>
+
+      <!-- Separador visual antes de la opción aislada -->
+      <hr class="menu-separator" />
+
+      <!-- Versión Ligera (Nuevo) — opción aislada al final, redirige a un
+           despliegue alterno del mismo dashboard sin cambiar sesión ni
+           tocar SessionEngine/AccessManager de esta instancia. -->
+      <a href="https://alexchouriors.github.io/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/"
+         class="btn-menu-lite" id="btnVersionLigera" rel="noopener">
+        <i class="bi bi-lightning-charge-fill me-2"></i>Versión Ligera
+      </a>
 
     </div>
 
@@ -1244,6 +1262,53 @@
 </div>
 
 <!-- ============================================================
+     MODAL — CAMBIAR SESIÓN (SwitchSessionEngine)
+     ────────────────────────────────────────────────────────────
+     Reutiliza las mismas clases visuales que el resto de modales
+     del dashboard (dash-modal-* del modal Eliminar, auth-* del
+     modal de token de GitHub). No es un formulario nuevo de
+     diseño: solo reordena piezas ya existentes en el CSS.
+============================================================ -->
+<div class="modal fade" id="modalCambiarSesion" tabindex="-1" aria-labelledby="modalCambiarSesionLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+
+      <div class="modal-header dash-modal-header">
+        <h5 class="modal-title dash-modal-title" id="modalCambiarSesionLabel">
+          <i class="bi bi-person-gear me-2" style="color:#4f7cff"></i>Cambiar Sesión
+        </h5>
+        <button type="button" class="dash-modal-close" data-bs-dismiss="modal" aria-label="Cerrar">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <div class="modal-body dash-modal-body">
+
+        <label class="auth-label" for="switchSessionInput">Nuevo nombre de usuario</label>
+        <div class="auth-input-row">
+          <input type="text" id="switchSessionInput" class="auth-input"
+                 placeholder="Ej. JONATHAN" autocomplete="off" spellcheck="false" />
+        </div>
+
+        <!-- Error de validación (usuario vacío / no encontrado) -->
+        <div id="switchSessionError" class="auth-modal-error d-none"></div>
+
+        <!-- Acciones: Cancelar / Aceptar -->
+        <div class="auth-modal-actions">
+          <button type="button" class="btn-auth-clear" id="btnSwitchSessionCancel" data-bs-dismiss="modal">
+            <i class="bi bi-x-lg me-1"></i>Cancelar
+          </button>
+          <button type="button" class="btn-auth-save" id="btnSwitchSessionAccept">
+            <i class="bi bi-check2 me-1"></i>Aceptar
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
      MODAL — TOKEN EFÍMERO PARA "BASE DE DATOS (BETA)"
      Se solicita en cada apertura; nunca se lee ni se guarda en
      localStorage/caché. Vive solo en memoria (DbDefaultEngine).
@@ -1394,6 +1459,12 @@
      de app.js (usa GSheetsEngine) pero conserva su lugar en la cadena
      `defer`, por lo que igual se ejecuta antes de DOMContentLoaded. -->
 <script src="LazyModals.js" defer></script>
+
+<!-- Módulo independiente del botón "Cambiar Sesión" del menú: valida
+     el nuevo usuario contra USUARIOS.JS y recarga la página con la
+     nueva sesión activa (mismo patrón que SessionEngine.logout()).
+     No modifica SessionEngine.js / AccessManager.js / SecurityConfig.js. -->
+<script src="SwitchSessionEngine.js" defer></script>
 
 <!-- Módulo independiente de micro-interacciones: ripple en botones,
      tilt de tarjetas, conteo animado de KPIs y "vida" en la pantalla

@@ -3840,6 +3840,92 @@ body.desktop-mode .container-fluid {
   border-color: #dc2626;
 }
 
+/* ── Cambiar Sesión (mismo patrón visual que los demás botones del menú) ── */
+.btn-menu-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px 16px;
+  background: rgba(56,189,248,.12);
+  color: #7dd3fc;
+  border: 1px solid rgba(56,189,248,.35);
+  border-radius: var(--radius-sm);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s;
+  white-space: nowrap;
+}
+
+.btn-menu-switch:hover {
+  background: rgba(56,189,248,.22);
+  border-color: rgba(56,189,248,.6);
+  color: #bae6fd;
+}
+
+[data-theme="light"] .btn-menu-switch {
+  background: rgba(2,132,199,.08);
+  color: #0284c7;
+  border-color: rgba(2,132,199,.3);
+}
+
+[data-theme="light"] .btn-menu-switch:hover {
+  background: rgba(2,132,199,.16);
+  border-color: #0284c7;
+}
+
+/* ── Separador visual antes de la opción aislada del menú ── */
+.menu-separator {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+  opacity: .8;
+}
+
+/* ── Versión Ligera — opción aislada al final, deliberadamente más
+   discreta (borde punteado) para distinguirla de las acciones
+   principales del dashboard, sin inventar un sistema de diseño
+   nuevo: reutiliza las mismas variables de color/tipografía. ── */
+.btn-menu-lite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 9px 16px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-sm);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .3px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s;
+  white-space: nowrap;
+}
+
+.btn-menu-lite:hover {
+  background: rgba(240,180,41,.08);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+[data-theme="light"] .btn-menu-lite {
+  color: #64748b;
+  border-color: rgba(15,23,42,.14);
+}
+
+[data-theme="light"] .btn-menu-lite:hover {
+  background: rgba(240,180,41,.1);
+  border-color: #b45309;
+  color: #b45309;
+}
+
 
 /* ────────────────────────────────────────────────────────────
    LOGIN OVERLAY — Pantalla de inicio de sesión

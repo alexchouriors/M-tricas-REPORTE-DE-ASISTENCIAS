@@ -2816,38 +2816,12 @@ const SessionEngine = {
         .catch(err => console.error('[SessionEngine] Error al notificar inicio de sesión:', err));
     }
 
-    /* Auto-carga del archivo predeterminado (config.json → REPORTES/<archivo>),
-       fire-and-forget: no bloquea el fade-out del overlay de login ni el
-       login en sí. Inmediatamente DESPUÉS de que termine de cargar
-       (encadenado con .then, no en paralelo), se revisa si hay una
-       tendencia predeterminada guardada en localStorage (ver
-       DbDefaultEngine) y se aplica automáticamente.
-
-       InitialLoadOverlay envuelve esta misma llamada para mostrar la
-       pantalla "Cargando su experiencia personalizada" con una barra
-       de progreso real: 8% al empezar, 65% cuando el reporte ya
-       cargó, 100% cuando la tendencia (si había una guardada) también
-       terminó — y se desvanece con fade-out. Se usa .finally() para
-       garantizar que el overlay SIEMPRE desaparezca, incluso si algo
-       falla, sin cambiar en nada el comportamiento de
-       AutoLoadEngine/DbDefaultEngine. */
-    if (typeof AutoLoadEngine !== 'undefined') {
-      InitialLoadOverlay.show();
-
-      AutoLoadEngine.loadDefaultFile()
-        .then(() => {
-          InitialLoadOverlay.setProgress(65);
-          if (typeof DbDefaultEngine !== 'undefined') {
-            return DbDefaultEngine.applyStoredTrendIfAny();
-          }
-        })
-        .catch(err => {
-          console.error('[SessionEngine] Error durante la auto-carga de la experiencia personalizada:', err);
-        })
-        .finally(() => {
-          InitialLoadOverlay.complete();
-        });
-    }
+    /* Auto-carga del archivo predeterminado + tendencia guardada.
+       Extraído a _autoLoadDefaultExperience() (ver más abajo) para
+       poder reutilizarlo también en init() cuando la sesión ya
+       estaba activa (p. ej. tras SwitchSessionEngine.js), caso que
+       antes se quedaba sin auto-cargar nada. */
+    this._autoLoadDefaultExperience();
 
     /* Desvanece el overlay y revela el dashboard */
     const overlay = this._el('loginOverlay');
@@ -2990,6 +2964,46 @@ const SessionEngine = {
     ClockEngine.start();
   },
 
+  /* ── Auto-carga del archivo predeterminado (config.json → REPORTES/<archivo>)
+       + tendencia guardada. Fire-and-forget: no bloquea el fade-out del
+       overlay de login ni el flujo que la llame. Inmediatamente DESPUÉS de
+       que termine de cargar (encadenado con .then, no en paralelo), se
+       revisa si hay una tendencia predeterminada guardada en localStorage
+       (ver DbDefaultEngine) y se aplica automáticamente.
+
+       InitialLoadOverlay envuelve esta misma llamada para mostrar la
+       pantalla "Cargando su experiencia personalizada" con una barra de
+       progreso real: 8% al empezar, 65% cuando el reporte ya cargó, 100%
+       cuando la tendencia (si había una guardada) también terminó — y se
+       desvanece con fade-out. Se usa .finally() para garantizar que el
+       overlay SIEMPRE desaparezca, incluso si algo falla, sin cambiar en
+       nada el comportamiento de AutoLoadEngine/DbDefaultEngine.
+
+       Se llama tanto desde _confirmLogin() (login normal) como desde
+       init() cuando la sesión YA estaba activa al cargar la página (p. ej.
+       tras un reload disparado por SwitchSessionEngine.js) — antes solo
+       corría en el primer caso, por lo que cambiar de sesión dejaba el
+       dashboard sin el Excel/tendencia predeterminados. ── */
+  _autoLoadDefaultExperience() {
+    if (typeof AutoLoadEngine === 'undefined') return;
+
+    InitialLoadOverlay.show();
+
+    AutoLoadEngine.loadDefaultFile()
+      .then(() => {
+        InitialLoadOverlay.setProgress(65);
+        if (typeof DbDefaultEngine !== 'undefined') {
+          return DbDefaultEngine.applyStoredTrendIfAny();
+        }
+      })
+      .catch(err => {
+        console.error('[SessionEngine] Error durante la auto-carga de la experiencia predeterminada:', err);
+      })
+      .finally(() => {
+        InitialLoadOverlay.complete();
+      });
+  },
+
   init() {
     /* Si ya existe una sesión (misma pestaña), no se muestra el login */
     if (this.isLoggedIn()) {
@@ -2998,6 +3012,10 @@ const SessionEngine = {
       /* Restaura los permisos de INTERFAZ (Usuario Rules.js) para el
          usuario ya autenticado — no afecta datos ni filtros RBAC */
       if (window.UsuarioRules) window.UsuarioRules.applyUIPermissions(this.getUser());
+      /* Misma auto-carga que ocurre en un login normal: sin esto, un
+         reload con sesión ya activa (p. ej. tras Cambiar Sesión) dejaba
+         el dashboard vacío hasta que el usuario cargara un Excel a mano. */
+      this._autoLoadDefaultExperience();
     } else {
       this.showOverlay();
     }
