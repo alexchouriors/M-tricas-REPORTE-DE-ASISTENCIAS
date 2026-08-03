@@ -579,6 +579,31 @@ body.desktop-mode .session-info {
   margin-top: 3px;
 }
 
+/* ── Estado transitorio "Recalculando…" (cambio de filtro de grupo) ──
+   Usa --gold, el mismo ámbar de la paleta de KPIs/gráficos del
+   dashboard, para que se sienta parte del diseño y no un error visual.
+   El pulso es sutil y respeta prefers-reduced-motion vía la misma
+   variable que ya usa el resto del proyecto para animaciones. */
+.kpi-value.kpi-recalculando,
+.kpi-pct.kpi-recalculando {
+  color: var(--gold) !important;
+  font-size: 15px;
+  letter-spacing: 0;
+  animation: kpiRecalcPulse 1s ease-in-out infinite;
+}
+
+@keyframes kpiRecalcPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi-value.kpi-recalculando,
+  .kpi-pct.kpi-recalculando {
+    animation: none;
+  }
+}
+
 .kpi-label {
   font-size: 10.5px;
   color: var(--text-muted);
@@ -884,6 +909,39 @@ body.kpi-modal-open { overflow: hidden; }
 }
 .chart-card:hover { box-shadow: var(--shadow-sm); border-color: var(--border-light); }
 
+/* ── Overlay "Recalculando…" sobre las tarjetas de gráficos ──
+   Se activa solo al cambiar de Grupo Ministerial (ver
+   UIController.refresh en app.js), donde el recálculo puede tardar
+   un poco más. Cubre el contenido (sin desmontar el canvas ni el
+   Chart.js debajo) con el mismo dorado/pulso que ya usan los KPI,
+   para sentirse parte del mismo diseño y no un error visual. */
+.chart-card.chart-recalculando {
+  position: relative;
+}
+.chart-card.chart-recalculando::after {
+  content: 'Recalculando…';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--bg-card);
+  color: var(--gold);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: .3px;
+  z-index: 20;
+  animation: kpiRecalcPulse 1s ease-in-out infinite;
+}
+[data-theme="light"] .chart-card.chart-recalculando::after {
+  background: #ffffff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-card.chart-recalculando::after { animation: none; }
+}
+
 .chart-header {
   display: flex;
   align-items: center;
@@ -1054,7 +1112,15 @@ body.kpi-modal-open { overflow: hidden; }
 .data-table thead th {
   position: sticky;
   top: 0;
+  z-index: 10; /* por encima de las celdas del tbody al hacer scroll */
   background: var(--bg-card2);
+  /* Refuerzo del fondo sólido: algunos navegadores (con
+     border-collapse: collapse) dejan "ver a través" del th sticky si
+     su fondo depende únicamente de la variable de tema; este segundo
+     background-color idéntico evita cualquier resquicio transparente
+     sin cambiar el color visual. */
+  background-color: var(--bg-card2);
+  background-clip: padding-box;
   color: var(--text-muted);
   font-weight: 600;
   font-size: 10.5px;
@@ -1998,7 +2064,10 @@ body.kpi-modal-open { overflow: hidden; }
 [data-theme="light"] .table-tabs .nav-link.active { color: var(--brand-blue) !important; border-bottom-color: var(--brand-blue); }
 
 [data-theme="light"] .data-table thead th {
+  z-index: 10;
   background: var(--bg-card2);
+  background-color: var(--bg-card2);
+  background-clip: padding-box;
   color: var(--text-muted);
   border-bottom-color: var(--border);
 }

@@ -138,14 +138,21 @@
         if (newNumeric === null) { lastNumeric = null; return; }
         if (lastNumeric === null) { lastNumeric = newNumeric; return; } // primer valor real, sin animar desde "—"
 
+        // Duración reducida (antes 650ms) para eliminar la sensación de
+        // retardo al cambiar de filtro. requestAnimationFrame (dentro de
+        // animateNumber) ya evita bloquear el hilo principal, así que
+        // gráficos y tablas se renderizan de inmediato sin esperar a que
+        // termine este conteo.
+        const COUNT_DURATION = 350; // ms — tope solicitado: máx. 400ms
+
         selfUpdating = true;
         observer.disconnect();
-        animateNumber(el, lastNumeric, newNumeric, suffix, 650, decimals);
+        animateNumber(el, lastNumeric, newNumeric, suffix, COUNT_DURATION, decimals);
         lastNumeric = newNumeric;
         setTimeout(() => {
           selfUpdating = false;
           observer.observe(el, { childList: true, characterData: true, subtree: true });
-        }, 700);
+        }, COUNT_DURATION + 50); // pequeño margen sobre la duración real
       });
 
       observer.observe(el, { childList: true, characterData: true, subtree: true });
@@ -353,11 +360,22 @@
        primer frame las escalas aún no están calculadas, por lo que el
        callback `from` devolvía un valor inválido y el gráfico quedaba
        invisible. La animación estándar de Chart.js ya anima barras y
-       arcos de forma robusta sin depender de las escalas. */
-    Chart.defaults.animation = {
-      duration: 900,
+       arcos de forma robusta sin depender de las escalas.
+
+       IMPORTANTE: se FUSIONA con Object.assign en vez de reemplazar
+       `Chart.defaults.animation` por un objeto nuevo. Sobrescribirlo
+       por completo (`Chart.defaults.animation = {...}`) borra
+       cualquier propiedad interna que Chart.js espere ahí además de
+       duration/easing, lo que puede dejar el motor de animación en un
+       estado inconsistente y, con él, la re-pintura que dispara el
+       hover/click sobre leyenda y tooltips — los gráficos quedan
+       "pegados" como una imagen estática en vez de reaccionar al
+       mouse. Con Object.assign solo se tocan duration/easing y todo
+       lo demás que Chart.js trae por defecto queda intacto. */
+    Object.assign(Chart.defaults.animation, {
+      duration: 500,
       easing: 'easeOutQuart',
-    };
+    });
     Chart.defaults.transitions.active.animation.duration = 300;
   }
 

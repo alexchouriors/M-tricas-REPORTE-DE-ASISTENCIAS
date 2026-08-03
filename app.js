@@ -1116,6 +1116,47 @@ const ChartEngine = {
     return {
       responsive: true,
       maintainAspectRatio: false,
+      /* Interactividad explícita: clic en la leyenda (mostrar/ocultar
+         series) y hover con tooltip SIEMPRE activos, sin depender de
+         que ningún override global de Chart.defaults (p. ej. la
+         animación de entrada de InteractiveLife.js) los deje intactos
+         por accidente. No se define plugins.legend.onClick a propósito:
+         cada tipo de gráfico (dona vs. barras) tiene su propio
+         comportamiento de clic por defecto en Chart.js (alternar arco
+         vs. alternar dataset) y fijar uno genérico aquí rompería el
+         otro — dejamos que Chart.js resuelva el correcto según el tipo.*/
+      events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
+      interaction: {
+        mode: 'nearest',
+        intersect: true,
+      },
+      /* Animación corta y consistente: evita que, al cambiar de filtro
+         de grupo, el gráfico recién recreado quede "vacío" varios
+         cientos de ms mientras anima desde cero (percibido como que
+         "desaparece"). No se desactiva del todo para conservar la
+         transición suave del diseño, solo se acota su duración. */
+      animation: {
+        duration: 350,
+        easing: 'easeOutQuart',
+      },
+      /* Config explícita (y genérica, sin callbacks dependientes de
+         escalas — eso fue lo que rompía los gráficos antes) de qué
+         propiedades numéricas anima Chart.js en cada redibujado. Sin
+         esto, cada tipo de gráfico usa el set de propiedades animadas
+         que trae por defecto SU PROPIO controlador interno (el de
+         dona no es igual al de barras), lo que hacía que algunas
+         gráficas aparecieran "de golpe" mientras otras sí mostraban
+         el efecto de relleno. Al declararlo aquí, TODAS (dona,
+         embudo, barras, apiladas, ranking) animan el mismo conjunto
+         de propiedades con la misma duración/easing. */
+      animations: {
+        numbers: {
+          type: 'number',
+          properties: ['x', 'y', 'width', 'height', 'circumference', 'endAngle', 'innerRadius', 'outerRadius'],
+          duration: 350,
+          easing: 'easeOutQuart',
+        },
+      },
       plugins: {
         legend: {
           labels: {
@@ -1146,6 +1187,58 @@ const ChartEngine = {
       this.instances[id].destroy();
       delete this.instances[id];
     }
+  },
+
+  /* Actualiza SOLO los colores de tema (ticks, grid, leyenda, tooltip)
+     de los gráficos YA CREADOS, sin destruirlos ni recrearlos.
+
+     Por qué: ThemeEngine.apply() antes llamaba a renderAll(kpis) en
+     cada cambio de tema, lo que hace destroy() + new Chart() de las
+     5 gráficas de golpe — cada una arranca su animación de entrada
+     desde cero, y durante ese instante el canvas queda en blanco.
+     Al ser un clic directo del usuario sobre el botón de tema, ese
+     parpadeo se nota mucho más que en un cambio de filtro. Como los
+     DATOS no cambian al cambiar de tema (solo los colores), no hace
+     falta recrear nada: basta con mutar las opciones de color de cada
+     instancia existente y pedirle un update sin animación
+     (chart.update('none')) para que el redibujado sea instantáneo y
+     nunca pase por un estado vacío.
+
+     No toca datasets, labels ni ningún dato — solo propiedades de
+     color dentro de options. Si todavía no hay instancias (dashboard
+     vacío), no hace nada: el próximo renderAll() ya usará los nuevos
+     Chart.defaults. */
+  updateTheme(theme) {
+    const isLight = theme === 'light';
+    const textColor     = isLight ? '#0f172a'         : '#94a3b8';
+    const gridColor      = isLight ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.04)';
+    const tooltipBg      = isLight ? '#ffffff'          : '#1c2333';
+    const tooltipBorder  = isLight ? 'rgba(0,0,0,.12)'  : 'rgba(255,255,255,.07)';
+    const tooltipTitle   = isLight ? '#0f172a'          : '#e2e8f0';
+    const tooltipBody    = isLight ? '#1e293b'          : '#94a3b8';
+
+    Object.values(this.instances).forEach(chart => {
+      if (!chart || !chart.options) return;
+
+      if (chart.options.scales) {
+        Object.values(chart.options.scales).forEach(scale => {
+          if (scale.ticks) scale.ticks.color = textColor;
+          if (scale.grid)  scale.grid.color  = gridColor;
+        });
+      }
+
+      if (chart.options.plugins?.legend?.labels) {
+        chart.options.plugins.legend.labels.color = textColor;
+      }
+      if (chart.options.plugins?.tooltip) {
+        chart.options.plugins.tooltip.backgroundColor = tooltipBg;
+        chart.options.plugins.tooltip.borderColor     = tooltipBorder;
+        chart.options.plugins.tooltip.titleColor      = tooltipTitle;
+        chart.options.plugins.tooltip.bodyColor       = tooltipBody;
+      }
+
+      chart.update('none'); // 'none' = sin animación: cambio de color instantáneo, sin parpadeo
+    });
   },
 
   /* ── Donut: Asistencia vs Inasistencia general ── */
@@ -1383,7 +1476,16 @@ const ChartEngine = {
 
     // Altura dinámica: más grupos → canvas más alto (evita apretujar barras)
     const canvasEl = document.getElementById(canvasId);
-    if (canvasEl) canvasEl.style.height = Math.max(320, items.length * 38) + 'px';
+    if (canvasEl) {
+      canvasEl.style.height = Math.max(320, items.length * 38) + 'px';
+      // Fuerza un reflow ANTES de crear el chart: sin esto, Chart.js mide
+      // el canvas con el alto anterior (el del grupo previamente
+      // seleccionado) y el ResizeObserver interno lo corrige recién en
+      // un frame posterior, lo que se percibe como que el gráfico
+      // "desaparece" un instante al pasar a "Todos los grupos" (o
+      // viceversa) por el salto de tamaño.
+      void canvasEl.offsetHeight;
+    }
 
     this.instances[canvasId] = new Chart(ctx, {
       type: 'bar',
@@ -1742,19 +1844,23 @@ const UIController = {
     //   this.refresh();
     // });
 
-    // Filtros: actualizar en cambio
+    // Filtros: actualizar en cambio. El filtro de Grupo Ministerial es el
+    // único que puede implicar un salto grande de volumen de datos (de un
+    // grupo específico a "Todos los grupos" o viceversa), así que es el
+    // único que dispara el overlay extendido "Recalculando…" en las
+    // gráficas (ver refresh({ groupChange })).
     ['filterGroup','filterEstado','filterCelula','filterServicio','filterNuevo']
       .forEach(id => {
         document.getElementById(id)?.addEventListener('change', () => {
           FilterEngine.read();
-          this.refresh();
+          this.refresh({ groupChange: id === 'filterGroup' });
         });
       });
 
-    // Reset filtros
+    // Reset filtros — también puede saltar de/hacia "Todos los grupos"
     document.getElementById('btnResetFilters')?.addEventListener('click', () => {
       FilterEngine.reset();
-      this.refresh();
+      this.refresh({ groupChange: true });
     });
 
     // Búsqueda en tablas
@@ -1816,8 +1922,66 @@ const UIController = {
     reader.readAsArrayBuffer(file);
   },
 
-  /* Recalcula KPIs, actualiza gráficos y tablas con filtros aplicados */
-  refresh() {
+  /* Recalcula KPIs, actualiza gráficos y tablas con filtros aplicados.
+
+     FASE 1 (síncrona, instantánea): marca los valores de las tarjetas
+     KPI como "Recalculando…" — feedback visual inmediato de que el
+     cambio de filtro sí se registró, antes de arrancar el trabajo
+     pesado (compute + render de tablas/gráficos). Si el cambio es de
+     Grupo Ministerial (groupChange:true), también cubre cada tarjeta
+     de gráfico con el mismo overlay "Recalculando…".
+
+     FASE 2 (diferida): ejecuta el mismo trabajo que antes hacía
+     refresh() de forma síncrona — ni el orden ni la lógica de
+     cómputo/filtrado cambian, solo el momento en que corre. Para
+     cambios de grupo se añade un margen deliberado (~1.8s, dentro del
+     tope de 2-3s) antes de recalcular: le da colchón al cómputo más
+     pesado (salto grande de volumen de datos, p. ej. a "Todos los
+     grupos") y, detrás del overlay, cualquier micro-lag real queda
+     disimulado en vez de sentirse como que el dashboard "se traba".
+     Para el resto de filtros (estado, célula, servicio, nuevo) el
+     comportamiento es igual de instantáneo que antes (doble rAF). */
+  refresh(opts = {}) {
+    const groupChange = !!opts.groupChange;
+
+    this._setKpisRecalculando(true);
+    if (groupChange) this._setChartsRecalculando(true);
+
+    const run = () => this._performRefresh({ groupChange });
+
+    if (groupChange) {
+      const GROUP_CHANGE_DELAY_MS = 1800; // margen deliberado — tope pedido: 2-3s
+      setTimeout(() => requestAnimationFrame(run), GROUP_CHANGE_DELAY_MS);
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(run));
+    }
+  },
+
+  /* Activa/desactiva el estado visual "Recalculando…" (amarillo, fiel
+     al tema — var(--gold)) sobre los números de las tarjetas KPI.
+     No toca TrendEngine ni ningún dato: updateKPICards() sobrescribe
+     estos mismos nodos con el valor real en cuanto termina el cómputo. */
+  _setKpisRecalculando(active) {
+    document.querySelectorAll('.kpi-value, .kpi-pct').forEach(el => {
+      el.classList.toggle('kpi-recalculando', active);
+      if (active) el.textContent = 'Recalculando…';
+    });
+  },
+
+  /* Activa/desactiva el overlay "Recalculando…" sobre cada tarjeta de
+     gráfico (.chart-card). Es puramente visual (CSS ::after, ver
+     style.css): no desmonta el canvas ni ninguna instancia de
+     Chart.js, así que ChartEngine.renderAll() de abajo sigue
+     funcionando exactamente igual. */
+  _setChartsRecalculando(active) {
+    document.querySelectorAll('.chart-card').forEach(el => {
+      el.classList.toggle('chart-recalculando', active);
+    });
+  },
+
+  /* Trabajo real de refresco — idéntico, en el mismo orden, al que
+     antes vivía directamente en refresh(). */
+  _performRefresh(opts = {}) {
     const active   = DataStore.getActiveMain();
     const filtered = DataStore.applyFilters(active);
     const kpis     = KPIEngine.compute(filtered);
@@ -1833,6 +1997,9 @@ const UIController = {
     ChartEngine.renderAll(kpis);
     TableEngine.renderAll(filtered);
     AbsenceEngine.render(filtered);  // Monitor de ausencias
+
+    this._setKpisRecalculando(false);
+    if (opts.groupChange) this._setChartsRecalculando(false);
   },
 
   /**
@@ -2514,8 +2681,16 @@ const ThemeEngine = {
     this._updateIcon(theme);
     this._updateChartDefaults(theme);
 
-    // Re-renderiza gráficos si hay datos cargados
-    if (!document.getElementById('dashboardContent').classList.contains('d-none')) {
+    // Si ya hay gráficos creados, se actualizan sus colores in-place
+    // (sin destruir/recrear) para que el cambio de tema sea instantáneo
+    // y no produzca el parpadeo de "las gráficas desaparecen".
+    const hayGraficosCreados = Object.keys(ChartEngine.instances).length > 0;
+
+    if (hayGraficosCreados) {
+      ChartEngine.updateTheme(theme);
+    } else if (!document.getElementById('dashboardContent').classList.contains('d-none')) {
+      // Respaldo: dashboard visible pero sin instancias todavía
+      // (mismo comportamiento que existía antes de este cambio).
       const active   = DataStore.getActiveMain();
       const filtered = DataStore.applyFilters(active);
       const kpis     = KPIEngine.compute(filtered);
