@@ -236,6 +236,16 @@
 
     <div class="d-flex flex-column gap-2">
 
+      <!-- Reporte Ejecutivo (Nuevo) — invoca a Sebastián IA con un
+           resumen ejecutivo completo del dashboard (respetando la
+           vista restringida del usuario en sesión) + recomendaciones
+           del motor de Sebastián. Reemplaza al antiguo "Análisis con
+           IA" de la barra de filtros. Ver SebastianAI.js (init(),
+           FRASE_ANALISIS_IA). -->
+      <button type="button" class="btn btn-primary w-100 mb-2" id="btnReporteEjecutivo">
+        <i class="bi bi-file-earmark-bar-graph me-2"></i>Reporte Ejecutivo
+      </button>
+
       <!-- Guardar (deshabilitado hasta que se cargue un Excel local) -->
       <button type="button" class="btn-menu-guardar" id="btnMenuGuardar" disabled>
         <i class="bi bi-lock-fill" id="btnMenuGuardarIcon"></i>
@@ -768,7 +778,7 @@
           <option value="no">Sin Nuevos</option>
         </select>
       </div>
-      <div class="col-auto ms-auto">
+      <div class="col-auto ms-auto d-flex flex-row align-items-center gap-2">
         <button class="btn-filter-reset" id="btnResetFilters">
           <i class="bi bi-arrow-counterclockwise me-1"></i>Limpiar
         </button>
@@ -800,7 +810,11 @@
             <span class="kpi-trend-prev" id="kpiTotalTrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiTotalSpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Total Registrados</div>
+          <div class="kpi-label">Total Registrados</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="total" data-user-view="general"
+                aria-label="Ayuda sobre Total Registrados">?</button>
         </div>
       </div>
 
@@ -815,7 +829,11 @@
             <span class="kpi-trend-prev" id="kpiCelulasSITrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiCelulasSISpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Asistencia Célula</div>
+          <div class="kpi-label">Asistencia Célula</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="celula-si" data-user-view="celula"
+                aria-label="Ayuda sobre Asistencia Célula">?</button>
         </div>
       </div>
 
@@ -830,7 +848,11 @@
             <span class="kpi-trend-prev" id="kpiCelulasNOTrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiCelulasNOSpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Inasistencia Célula</div>
+          <div class="kpi-label">Inasistencia Célula</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="celula-no" data-user-view="celula"
+                aria-label="Ayuda sobre Inasistencia Célula">?</button>
         </div>
       </div>
 
@@ -845,7 +867,11 @@
             <span class="kpi-trend-prev" id="kpiServicioSITrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiServicioSISpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Asistencia Servicio</div>
+          <div class="kpi-label">Asistencia Servicio</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="servicio-si" data-user-view="servicio"
+                aria-label="Ayuda sobre Asistencia Servicio">?</button>
         </div>
       </div>
 
@@ -860,7 +886,11 @@
             <span class="kpi-trend-prev" id="kpiServicioNOTrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiServicioNOSpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Inasistencia Servicio</div>
+          <div class="kpi-label">Inasistencia Servicio</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="servicio-no" data-user-view="servicio"
+                aria-label="Ayuda sobre Inasistencia Servicio">?</button>
         </div>
       </div>
 
@@ -875,7 +905,11 @@
             <span class="kpi-trend-prev" id="kpiAmbosSITrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiAmbosSISpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Asistió a Ambos</div>
+          <div class="kpi-label">Asistió a Ambos</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="ambos-si" data-user-view="ambos"
+                aria-label="Ayuda sobre Asistió a Ambos">?</button>
         </div>
       </div>
 
@@ -890,7 +924,11 @@
             <span class="kpi-trend-prev" id="kpiAmbosNOTrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiAmbosNOSpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Ausente en Ambos</div>
+          <div class="kpi-label">Ausente en Ambos</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="ambos-no" data-user-view="ambos"
+                aria-label="Ayuda sobre Ausente en Ambos">?</button>
         </div>
       </div>
 
@@ -904,7 +942,11 @@
             <span class="kpi-trend-prev" id="kpiNuevosCelulaTrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiNuevosCelulaSpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Nuevos en Célula</div>
+          <div class="kpi-label">Nuevos en Célula</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="nuevos-celula" data-user-view="celula"
+                aria-label="Ayuda sobre Nuevos en Célula">?</button>
         </div>
       </div>
 
@@ -918,7 +960,11 @@
             <span class="kpi-trend-prev" id="kpiNuevosServicioTrendPrev"></span>
             <canvas class="kpi-sparkline" id="kpiNuevosServicioSpark" width="46" height="20"></canvas>
           </div>
-          <div class="kpi-label">Nuevos en Servicio</div>
+          <div class="kpi-label">Nuevos en Servicio</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="nuevos-servicio" data-user-view="servicio"
+                aria-label="Ayuda sobre Nuevos en Servicio">?</button>
         </div>
       </div>
 
@@ -927,7 +973,11 @@
         <div class="kpi-card kpi-pct-pos">
           <div class="kpi-icon"><i class="bi bi-graph-up-arrow"></i></div>
           <div class="kpi-value" id="kpiPctGeneral">—%</div>
-          <div class="kpi-label">% Asistencia General</div>
+          <div class="kpi-label">% Asistencia General</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="pct-general" data-user-view="general"
+                aria-label="Ayuda sobre % Asistencia General">?</button>
         </div>
       </div>
 
@@ -936,7 +986,11 @@
         <div class="kpi-card kpi-pct-c">
           <div class="kpi-icon"><i class="bi bi-pie-chart-fill"></i></div>
           <div class="kpi-value" id="kpiPctCelula">—%</div>
-          <div class="kpi-label">% Asistencia Célula</div>
+          <div class="kpi-label">% Asistencia Célula</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="pct-celula" data-user-view="celula"
+                aria-label="Ayuda sobre % Asistencia Célula">?</button>
         </div>
       </div>
 
@@ -945,7 +999,11 @@
         <div class="kpi-card kpi-pct-s">
           <div class="kpi-icon"><i class="bi bi-pie-chart"></i></div>
           <div class="kpi-value" id="kpiPctServicio">—%</div>
-          <div class="kpi-label">% Asistencia Servicio</div>
+          <div class="kpi-label">% Asistencia Servicio</div>        
+        <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+        <button type="button" class="kpi-help-btn"
+                data-kpi-id="pct-servicio" data-user-view="servicio"
+                aria-label="Ayuda sobre % Asistencia Servicio">?</button>
         </div>
       </div>
 
@@ -1067,6 +1125,10 @@
         <div class="tab-pane fade show active" id="tabPersonas">
           <div class="table-search-bar">
             <input type="text" id="searchPersonas" class="table-search" placeholder="Buscar por nombre…" />
+            <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+            <button type="button" class="table-help-btn"
+                    data-section-id="personas"
+                    aria-label="Preguntarle a Sebastián sobre Personas">?</button>
             <span class="table-count" id="countPersonas">0 registros</span>
           </div>
           <div class="table-responsive table-scroll">
@@ -1085,6 +1147,10 @@
         <div class="tab-pane fade" id="tabExcluidos">
           <div class="table-search-bar">
             <input type="text" id="searchExcluidos" class="table-search" placeholder="Buscar…" />
+            <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+            <button type="button" class="table-help-btn"
+                    data-section-id="excluidos"
+                    aria-label="Preguntarle a Sebastián sobre Excluidos">?</button>
             <span class="table-count" id="countExcluidos">0 registros</span>
           </div>
           <div class="table-responsive table-scroll">
@@ -1101,6 +1167,10 @@
         <div class="tab-pane fade" id="tabNuevos">
           <div class="table-search-bar">
             <input type="text" id="searchNuevos" class="table-search" placeholder="Buscar…" />
+            <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+            <button type="button" class="table-help-btn"
+                    data-section-id="nuevos"
+                    aria-label="Preguntarle a Sebastián sobre Nuevos">?</button>
             <span class="table-count" id="countNuevos">0 registros</span>
           </div>
           <div class="table-responsive table-scroll">
@@ -1133,6 +1203,10 @@
         <div class="tab-pane fade" id="tabAusencias">
           <div class="table-search-bar">
             <input type="text" id="searchAusencias" class="table-search" placeholder="Buscar por nombre o grupo…" />
+            <!-- Ícono de ayuda -> invoca a Sebastián IA (ver KpiHelpEngine.js) -->
+            <button type="button" class="table-help-btn"
+                    data-section-id="ausencias"
+                    aria-label="Preguntarle a Sebastián sobre el Monitor de Ausencias">?</button>
             <div class="ausencias-legend d-flex gap-3 align-items-center">
               <span class="absence-badge absence-normal">● Normal</span>
               <span class="absence-badge absence-watch">● Seguimiento</span>
@@ -1472,6 +1546,17 @@
      No depende de ni modifica AccessManager.js / SecurityConfig.js /
      USUARIOS.JS / app.js — solo observa el DOM. -->
 <script src="InteractiveLife.js" defer></script>
+
+<!-- Asistente Virtual "Sebastián" — módulo 100% independiente: botón
+     flotante + chat con parser de comandos local (sin API de IA
+     externa). Solo LEE nodos del DOM que UIController ya pintó (KPIs,
+     filtros, usuario en sesión) — nunca toca DataStore, AccessManager
+     ni SecurityConfig.js, así que jamás puede mostrar un dato que el
+     usuario actual no tenga ya permitido ver en pantalla. Ver
+     comentarios dentro del archivo. -->
+<!-- SebastianAI, KpiHelpEngine y ReporteEjecutivoEngine ahora viven
+     fusionados dentro de app.js (ver bloque final de ese archivo) -->
+<script src="AiAnalysisButton.js" defer></script>
 
 <!-- PWA — Registro del Service Worker
      El scope '/' permite que el SW controle toda la app aunque

@@ -853,6 +853,8 @@ const ModalEngine = {
 
   _initialized: false,
   _closeTimeout: null,
+  _flashTimeout: null,
+  _jsPdfPromise: null,
 
   /* Estado de la apertura actual (se resetea en cada open()) */
   _currentTitle: '',
@@ -871,7 +873,23 @@ const ModalEngine = {
       <div class="kpi-modal" role="dialog" aria-modal="true" aria-labelledby="kpiModalTitle">
         <div class="kpi-modal-header">
           <div class="kpi-modal-heading">
-            <h3 class="kpi-modal-title" id="kpiModalTitle"></h3>
+            <div class="kpi-modal-title-row">
+              <h3 class="kpi-modal-title" id="kpiModalTitle"></h3>
+              <div class="kpi-export-dropdown" id="kpiExportDropdown">
+                <button type="button" class="kpi-export-btn" id="kpiExportBtn"
+                        aria-haspopup="true" aria-expanded="false" title="Exportar la lista visible">
+                  <i class="bi bi-download"></i>
+                  <span id="kpiExportLabel">EXPORTAR LISTA</span>
+                  <i class="bi bi-chevron-down kpi-export-caret"></i>
+                </button>
+                <ul class="kpi-export-menu d-none" id="kpiExportMenu" role="menu">
+                  <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="pdf"><i class="bi bi-file-earmark-pdf"></i> Exportar a PDF</button></li>
+                  <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="word"><i class="bi bi-file-earmark-word"></i> Exportar a Word (.doc)</button></li>
+                  <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="txt"><i class="bi bi-file-earmark-text"></i> Exportar a Archivo de Texto (.txt)</button></li>
+                  <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="copy"><i class="bi bi-clipboard"></i> Copiar al Portapapeles</button></li>
+                </ul>
+              </div>
+            </div>
             <span class="kpi-modal-count" id="kpiModalCount"></span>
           </div>
           <button type="button" class="kpi-modal-close" id="kpiModalClose" aria-label="Cerrar">
@@ -905,7 +923,30 @@ const ModalEngine = {
 
     // Cierra con la tecla Escape, solo si el modal está visible
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && backdrop.classList.contains('kpi-modal-visible')) this.close();
+      if (e.key === 'Escape' && backdrop.classList.contains('kpi-modal-visible')) {
+        const menu = document.getElementById('kpiExportMenu');
+        if (menu && !menu.classList.contains('d-none')) { this._toggleExportMenu(false); return; }
+        this.close();
+      }
+    });
+
+    // Dropdown "EXPORTAR LISTA"
+    const exportBtn  = backdrop.querySelector('#kpiExportBtn');
+    const exportMenu = backdrop.querySelector('#kpiExportMenu');
+    exportBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._toggleExportMenu(exportMenu.classList.contains('d-none'));
+    });
+    exportMenu?.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-export]');
+      if (!item) return;
+      e.stopPropagation();
+      this._toggleExportMenu(false);
+      this._handleExport(item.getAttribute('data-export'));
+    });
+    // Cierra el menú al hacer clic en cualquier otra parte del modal
+    backdrop.addEventListener('click', (e) => {
+      if (!e.target.closest('#kpiExportDropdown')) this._toggleExportMenu(false);
     });
 
     // Buscador: filtra en vivo por nombre o grupo (sin distinguir acentos/mayúsculas)
@@ -970,6 +1011,7 @@ const ModalEngine = {
     }
 
     titleEl.textContent = title;
+    this._toggleExportMenu(false);
     this._render();
 
     backdrop.classList.remove('d-none');
@@ -990,13 +1032,7 @@ const ModalEngine = {
     const countEl = document.getElementById('kpiModalCount');
     if (!listEl || !countEl) return;
 
-    const query = this._normalizeSearch(this._searchQuery);
-    const personas = query === ''
-      ? this._currentPersonas
-      : this._currentPersonas.filter(p =>
-          this._normalizeSearch(p.nombre).includes(query) ||
-          this._normalizeSearch(p.grupo).includes(query)
-        );
+    const personas = this._getVisiblePersonas();
 
     const total = this._currentPersonas.length;
     const shown = personas.length;
@@ -1080,11 +1116,312 @@ const ModalEngine = {
     return li;
   },
 
+  /* Devuelve las personas EXACTAMENTE como se ven ahora en el modal
+     (aplicando la búsqueda activa). Lo usan _render() y la exportación,
+     así que lista visible y lista exportada nunca se desincronizan. */
+  _getVisiblePersonas() {
+    const query = this._normalizeSearch(this._searchQuery);
+    return query === ''
+      ? this._currentPersonas
+      : this._currentPersonas.filter(p =>
+          this._normalizeSearch(p.nombre).includes(query) ||
+          this._normalizeSearch(p.grupo).includes(query)
+        );
+  },
+
+  /* Estructura de exportación: respeta búsqueda activa y modo agrupado.
+     Devuelve { grouped, rows, sections }:
+       - plano:    rows = [{ n, nombre, grupo }]
+       - agrupado: sections = [{ grupo, items: [{ n, nombre }] }] */
+  _getExportData() {
+    const personas = this._getVisiblePersonas();
+
+    if (!this._groupMode) {
+      return {
+        grouped: false,
+        total: personas.length,
+        rows: personas.map((p, i) => ({ n: i + 1, nombre: p.nombre, grupo: p.grupo })),
+        sections: [],
+      };
+    }
+
+    const grupos = new Map();
+    personas.forEach(p => {
+      const key = p.grupo !== '' ? p.grupo : 'Sin grupo asignado';
+      if (!grupos.has(key)) grupos.set(key, []);
+      grupos.get(key).push(p);
+    });
+
+    let contador = 1;
+    const sections = Array.from(grupos.keys())
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
+      .map(key => ({
+        grupo: key,
+        items: grupos.get(key).map(p => ({ n: contador++, nombre: p.nombre })),
+      }));
+
+    return { grouped: true, total: personas.length, rows: [], sections };
+  },
+
+  /* Texto apilado: un registro por línea (con grupo si aplica) */
+  _buildPlainText() {
+    const d = this._getExportData();
+    const lines = [];
+    lines.push(this._currentTitle.toUpperCase());
+    lines.push(`Total: ${d.total} persona${d.total === 1 ? '' : 's'}`);
+    if (this._searchQuery.trim() !== '') lines.push(`Filtro de búsqueda: "${this._searchQuery.trim()}"`);
+    lines.push('');
+
+    if (d.grouped) {
+      d.sections.forEach((sec, idx) => {
+        if (idx > 0) lines.push('');
+        lines.push(`${sec.grupo.toUpperCase()} (${sec.items.length})`);
+        sec.items.forEach(it => lines.push(`${it.n}. ${it.nombre}`));
+      });
+    } else {
+      d.rows.forEach(r => lines.push(r.grupo !== '' ? `${r.n}. ${r.nombre} — ${r.grupo}` : `${r.n}. ${r.nombre}`));
+    }
+    return lines.join('\n');
+  },
+
+  _escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+
+  /* HTML de tabla compatible con Word (.doc) */
+  _buildWordHtml() {
+    const d = this._getExportData();
+    const esc = (v) => this._escapeHtml(v);
+    const cell = 'border:1px solid #999;padding:4px 8px;';
+    let body = '';
+
+    if (d.grouped) {
+      body += `<tr><th style="${cell}background:#e8eefc;width:40px;">#</th><th style="${cell}background:#e8eefc;">Nombre</th></tr>`;
+      d.sections.forEach(sec => {
+        body += `<tr><td colspan="2" style="${cell}background:#d9d9d9;font-weight:bold;">${esc(sec.grupo)} (${sec.items.length})</td></tr>`;
+        sec.items.forEach(it => {
+          body += `<tr><td style="${cell}">${it.n}</td><td style="${cell}">${esc(it.nombre)}</td></tr>`;
+        });
+      });
+    } else {
+      body += `<tr><th style="${cell}background:#e8eefc;width:40px;">#</th><th style="${cell}background:#e8eefc;">Nombre</th><th style="${cell}background:#e8eefc;">Grupo</th></tr>`;
+      d.rows.forEach(r => {
+        body += `<tr><td style="${cell}">${r.n}</td><td style="${cell}">${esc(r.nombre)}</td><td style="${cell}">${esc(r.grupo)}</td></tr>`;
+      });
+    }
+
+    const filtro = this._searchQuery.trim() !== ''
+      ? `<p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#555;">Filtro de búsqueda: &quot;${esc(this._searchQuery.trim())}&quot;</p>`
+      : '';
+
+    return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${esc(this._currentTitle)}</title></head>
+<body style="font-family:Calibri,Arial,sans-serif;">
+<h2 style="font-family:Calibri,Arial,sans-serif;">${esc(this._currentTitle)}</h2>
+<p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#555;">Total: ${d.total} persona${d.total === 1 ? '' : 's'}</p>
+${filtro}
+<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">${body}</table>
+</body></html>`;
+  },
+
+  /* Nombre de archivo seguro: titulo_AAAA-MM-DD.ext */
+  _buildFileName(ext) {
+    const base = this._normalizeSearch(this._currentTitle)
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'lista';
+    const hoy = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${base}_${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}.${ext}`;
+  },
+
+  /* Descarga un Blob mediante un <a download> temporal */
+  _downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1000);
+  },
+
+  /* Carga jsPDF una sola vez, de forma dinámica, desde el mismo CDN
+     que usa el resto del proyecto. */
+  _loadJsPdf() {
+    if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+    if (this._jsPdfPromise) return this._jsPdfPromise;
+
+    this._jsPdfPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      script.async = true;
+      script.onload = () => {
+        if (window.jspdf && window.jspdf.jsPDF) resolve(window.jspdf.jsPDF);
+        else { this._jsPdfPromise = null; reject(new Error('jsPDF no disponible')); }
+      };
+      script.onerror = () => {
+        this._jsPdfPromise = null;
+        script.remove();
+        reject(new Error('No se pudo cargar jsPDF'));
+      };
+      document.head.appendChild(script);
+    });
+    return this._jsPdfPromise;
+  },
+
+  async _exportPdf() {
+    const JsPDF = await this._loadJsPdf();
+    const d = this._getExportData();
+    const doc = new JsPDF({ unit: 'pt', format: 'letter' });
+
+    const marginX = 48;
+    const marginTop = 56;
+    const marginBottom = 48;
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const maxW = pageW - marginX * 2;
+    const lineH = 15;
+    let y = marginTop;
+
+    const ensureSpace = (needed) => {
+      if (y + needed > pageH - marginBottom) {
+        doc.addPage();
+        y = marginTop;
+      }
+    };
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.splitTextToSize(this._currentTitle, maxW).forEach(l => {
+      ensureSpace(22);
+      doc.text(l, marginX, y);
+      y += 22;
+    });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Total: ${d.total} persona${d.total === 1 ? '' : 's'}`, marginX, y);
+    y += 14;
+    if (this._searchQuery.trim() !== '') {
+      doc.text(`Filtro de búsqueda: "${this._searchQuery.trim()}"`, marginX, y);
+      y += 14;
+    }
+    y += 8;
+    doc.setTextColor(0);
+    doc.setFontSize(11);
+
+    const writeLine = (text) => {
+      doc.splitTextToSize(text, maxW).forEach(l => {
+        ensureSpace(lineH);
+        doc.text(l, marginX, y);
+        y += lineH;
+      });
+    };
+
+    if (d.grouped) {
+      d.sections.forEach((sec, idx) => {
+        if (idx > 0) y += 8;
+        ensureSpace(lineH + 6);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        writeLine(`${sec.grupo.toUpperCase()} (${sec.items.length})`);
+        doc.setFont('helvetica', 'normal');
+        sec.items.forEach(it => writeLine(`${it.n}. ${it.nombre}`));
+      });
+    } else {
+      d.rows.forEach(r => writeLine(r.grupo !== '' ? `${r.n}. ${r.nombre} — ${r.grupo}` : `${r.n}. ${r.nombre}`));
+    }
+
+    doc.save(this._buildFileName('pdf'));
+  },
+
+  async _copyToClipboard(text) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function' && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    // Respaldo para contextos sin Clipboard API (p. ej. HTTP o WebViews antiguos)
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (!ok) throw new Error('No se pudo copiar al portapapeles');
+  },
+
+  _toggleExportMenu(show) {
+    const menu = document.getElementById('kpiExportMenu');
+    const btn  = document.getElementById('kpiExportBtn');
+    if (!menu || !btn) return;
+    menu.classList.toggle('d-none', !show);
+    btn.setAttribute('aria-expanded', String(!!show));
+    btn.classList.toggle('kpi-export-btn-open', !!show);
+  },
+
+  /* Mensaje temporal en la etiqueta del botón (feedback sin librerías) */
+  _flashExportLabel(text, isError = false) {
+    const label = document.getElementById('kpiExportLabel');
+    const btn   = document.getElementById('kpiExportBtn');
+    if (!label || !btn) return;
+    clearTimeout(this._flashTimeout);
+    label.textContent = text;
+    btn.classList.toggle('kpi-export-btn-error', isError);
+    btn.classList.toggle('kpi-export-btn-ok', !isError);
+    this._flashTimeout = setTimeout(() => {
+      label.textContent = 'EXPORTAR LISTA';
+      btn.classList.remove('kpi-export-btn-error', 'kpi-export-btn-ok');
+    }, 2200);
+  },
+
+  async _handleExport(kind) {
+    if (this._getVisiblePersonas().length === 0) {
+      this._flashExportLabel('SIN DATOS PARA EXPORTAR', true);
+      return;
+    }
+
+    try {
+      if (kind === 'txt') {
+        const blob = new Blob(['\ufeff' + this._buildPlainText()], { type: 'text/plain;charset=utf-8' });
+        this._downloadBlob(blob, this._buildFileName('txt'));
+        this._flashExportLabel('¡TXT DESCARGADO!');
+      } else if (kind === 'word') {
+        const blob = new Blob(['\ufeff' + this._buildWordHtml()], { type: 'application/msword;charset=utf-8' });
+        this._downloadBlob(blob, this._buildFileName('doc'));
+        this._flashExportLabel('¡WORD DESCARGADO!');
+      } else if (kind === 'copy') {
+        await this._copyToClipboard(this._buildPlainText());
+        this._flashExportLabel('¡COPIADO!');
+      } else if (kind === 'pdf') {
+        this._flashExportLabel('GENERANDO PDF...');
+        await this._exportPdf();
+        this._flashExportLabel('¡PDF DESCARGADO!');
+      }
+    } catch (err) {
+      console.error('[ModalEngine] Error al exportar:', err);
+      this._flashExportLabel('ERROR AL EXPORTAR', true);
+    }
+  },
+
   /* Cierra el modal con una pequeña transición de salida */
   close() {
     const backdrop = document.getElementById('kpiDetailModal');
     if (!backdrop) return;
 
+    this._toggleExportMenu(false);
     backdrop.classList.remove('kpi-modal-visible');
     document.body.classList.remove('kpi-modal-open');
     clearTimeout(this._closeTimeout);
@@ -1092,6 +1429,315 @@ const ModalEngine = {
   },
 };
 window.ModalEngine = ModalEngine;
+
+
+/* ────────────────────────────────────────────────────────────
+   LIST EXPORT ENGINE — botón "EXPORTAR LISTA" para las pestañas
+   "Excluidos" y "Monitor de Ausencias"
+   ────────────────────────────────────────────────────────────
+   Inyecta el mismo botón desplegable del modal de KPIs (PDF, Word
+   .doc, TXT y Copiar) en la barra de búsqueda de cada pestaña.
+   Exporta EXACTAMENTE lo que se ve en pantalla en ese momento:
+     - Excluidos: grupo seleccionado + búsqueda activa de la tabla.
+     - Ausencias: filtro de nivel + búsqueda activa del monitor.
+   Reutiliza los helpers de ModalEngine (descarga de Blob, jsPDF
+   dinámico, portapapeles y escape de HTML).
+──────────────────────────────────────────────────────────── */
+const ListExportEngine = {
+
+  _flashTimeouts: new WeakMap(),
+
+  /* Configuración por sección: de dónde salen los registros visibles,
+     qué columnas llevan Word/PDF y cómo se escribe cada línea apilada. */
+  SECTIONS: {
+    excluidos: {
+      barSelector: '#tabExcluidos .table-search-bar',
+      searchId: 'searchExcluidos',
+      title: 'Excluidos',
+      columns: [
+        { label: 'Nombre',     get: r => r.nombre || '' },
+        { label: 'Grupo',      get: r => r.grupo || '' },
+        { label: 'Teléfono',   get: r => r.telefono || '' },
+        { label: 'Célula',     get: r => r.celula || '' },
+        { label: 'Servicio',   get: r => r.servicio || '' },
+        { label: 'Estado',     get: r => r.estado || '' },
+        { label: 'Fecha',      get: r => r.fecha || '' },
+      ],
+      line: r => (r.grupo ? `${r.nombre} — ${r.grupo}` : `${r.nombre}`),
+      getRecords() {
+        const all = (typeof TableEngine !== 'undefined' && TableEngine._excluidosRecords) || [];
+        const rows = document.querySelectorAll('#tableExcluidos tbody tr');
+        const visibles = [];
+        rows.forEach((row, i) => {
+          if (row.style.display !== 'none' && all[i]) visibles.push(all[i]);
+        });
+        return visibles;
+      },
+    },
+    ausencias: {
+      barSelector: '#tabAusencias .table-search-bar',
+      searchId: 'searchAusencias',
+      title: 'Monitor de Ausencias',
+      columns: [
+        { label: 'Nombre',            get: r => r.nombre || '' },
+        { label: 'Grupo',             get: r => r.grupo || '' },
+        { label: 'Teléfono',          get: r => r.telefono || '' },
+        { label: 'Última Falta',      get: r => r.fechaFormatted || '' },
+        { label: 'Tiempo sin asistir',get: r => (r.timeFmt ? r.timeFmt.main + (r.timeFmt.detail ? ` (${r.timeFmt.detail})` : '') : '') },
+        { label: 'Célula',            get: r => r.celula || '' },
+        { label: 'Servicio',          get: r => r.servicio || '' },
+        { label: 'Estado',            get: r => r.estado || '' },
+        { label: 'Nivel de Alerta',   get: r => (r.levelObj ? r.levelObj.label : '') },
+      ],
+      line: r => {
+        const base = r.grupo ? `${r.nombre} — ${r.grupo}` : `${r.nombre}`;
+        const tiempo = r.timeFmt ? r.timeFmt.main : '';
+        const nivel = r.levelObj ? r.levelObj.label : '';
+        return `${base} — Sin asistir: ${tiempo} (${nivel})`;
+      },
+      getRecords() {
+        return (typeof AbsenceEngine !== 'undefined' && Array.isArray(AbsenceEngine._visibleData))
+          ? AbsenceEngine._visibleData
+          : [];
+      },
+    },
+  },
+
+  /* Subtítulo con los filtros activos (para encabezar el archivo) */
+  _getFilterNote(key) {
+    const cfg = this.SECTIONS[key];
+    const notes = [];
+    const q = (document.getElementById(cfg.searchId)?.value || '').trim();
+    if (q !== '') notes.push(`Búsqueda: "${q}"`);
+    if (key === 'ausencias') {
+      const activeBtn = document.querySelector('.aus-filter-btn.active');
+      const lvl = activeBtn ? (activeBtn.dataset.level || '') : '';
+      if (lvl !== '') notes.push(`Nivel: ${activeBtn.textContent.trim()}`);
+    }
+    return notes.join(' · ');
+  },
+
+  _buildPlainText(key) {
+    const cfg = this.SECTIONS[key];
+    const records = cfg.getRecords();
+    const note = this._getFilterNote(key);
+    const lines = [cfg.title.toUpperCase(), `Total: ${records.length} persona${records.length === 1 ? '' : 's'}`];
+    if (note) lines.push(`Filtros: ${note}`);
+    lines.push('');
+    records.forEach((r, i) => lines.push(`${i + 1}. ${cfg.line(r)}`));
+    return lines.join('\n');
+  },
+
+  _buildWordHtml(key) {
+    const cfg = this.SECTIONS[key];
+    const records = cfg.getRecords();
+    const note = this._getFilterNote(key);
+    const esc = (v) => ModalEngine._escapeHtml(v);
+    const cell = 'border:1px solid #999;padding:4px 8px;';
+    const head = `<tr><th style="${cell}background:#e8eefc;width:40px;">#</th>` +
+      cfg.columns.map(c => `<th style="${cell}background:#e8eefc;">${esc(c.label)}</th>`).join('') + '</tr>';
+    const body = records.map((r, i) =>
+      `<tr><td style="${cell}">${i + 1}</td>` +
+      cfg.columns.map(c => `<td style="${cell}">${esc(c.get(r))}</td>`).join('') + '</tr>'
+    ).join('');
+
+    return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${esc(cfg.title)}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+<style>@page { size: landscape; }</style></head>
+<body style="font-family:Calibri,Arial,sans-serif;">
+<h2 style="font-family:Calibri,Arial,sans-serif;">${esc(cfg.title)}</h2>
+<p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#555;">Total: ${records.length} persona${records.length === 1 ? '' : 's'}</p>
+${note ? `<p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#555;">Filtros: ${esc(note)}</p>` : ''}
+<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:10pt;">${head}${body}</table>
+</body></html>`;
+  },
+
+  _buildFileName(key, ext) {
+    const base = key === 'ausencias' ? 'monitor_de_ausencias' : 'excluidos';
+    const hoy = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${base}_${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}.${ext}`;
+  },
+
+  async _exportPdf(key) {
+    const JsPDF = await ModalEngine._loadJsPdf();
+    const cfg = this.SECTIONS[key];
+    const records = cfg.getRecords();
+    const note = this._getFilterNote(key);
+    const doc = new JsPDF({ unit: 'pt', format: 'letter' });
+
+    const marginX = 48, marginTop = 56, marginBottom = 48, lineH = 15;
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const maxW = pageW - marginX * 2;
+    let y = marginTop;
+
+    const ensureSpace = (needed) => {
+      if (y + needed > pageH - marginBottom) { doc.addPage(); y = marginTop; }
+    };
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text(cfg.title, marginX, y);
+    y += 22;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Total: ${records.length} persona${records.length === 1 ? '' : 's'}`, marginX, y);
+    y += 14;
+    if (note) {
+      doc.splitTextToSize(`Filtros: ${note}`, maxW).forEach(l => { doc.text(l, marginX, y); y += 14; });
+    }
+    y += 8;
+    doc.setTextColor(0);
+    doc.setFontSize(11);
+
+    records.forEach((r, i) => {
+      doc.splitTextToSize(`${i + 1}. ${cfg.line(r)}`, maxW).forEach(l => {
+        ensureSpace(lineH);
+        doc.text(l, marginX, y);
+        y += lineH;
+      });
+    });
+
+    doc.save(this._buildFileName(key, 'pdf'));
+  },
+
+  /* Posiciona el menú (fixed) bajo el botón sin salirse de la pantalla */
+  _toggleMenu(wrapper, show) {
+    const menu = wrapper.querySelector('.kpi-export-menu');
+    const btn  = wrapper.querySelector('.kpi-export-btn');
+    if (!menu || !btn) return;
+
+    if (show) {
+      menu.classList.remove('d-none');
+      const r = btn.getBoundingClientRect();
+      const mw = menu.offsetWidth || 250;
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8));
+      menu.style.position = 'fixed';
+      menu.style.top = `${r.bottom + 6}px`;
+      menu.style.left = `${left}px`;
+    } else {
+      menu.classList.add('d-none');
+    }
+    btn.setAttribute('aria-expanded', String(!!show));
+    btn.classList.toggle('kpi-export-btn-open', !!show);
+  },
+
+  _closeAllMenus() {
+    document.querySelectorAll('.list-export-dropdown').forEach(w => this._toggleMenu(w, false));
+  },
+
+  _flash(wrapper, text, isError = false) {
+    const label = wrapper.querySelector('.kpi-export-label');
+    const btn   = wrapper.querySelector('.kpi-export-btn');
+    if (!label || !btn) return;
+    clearTimeout(this._flashTimeouts.get(wrapper));
+    label.textContent = text;
+    btn.classList.toggle('kpi-export-btn-error', isError);
+    btn.classList.toggle('kpi-export-btn-ok', !isError);
+    this._flashTimeouts.set(wrapper, setTimeout(() => {
+      label.textContent = 'EXPORTAR LISTA';
+      btn.classList.remove('kpi-export-btn-error', 'kpi-export-btn-ok');
+    }, 2200));
+  },
+
+  async _handle(key, kind, wrapper) {
+    const cfg = this.SECTIONS[key];
+    if (cfg.getRecords().length === 0) {
+      this._flash(wrapper, 'SIN DATOS PARA EXPORTAR', true);
+      return;
+    }
+
+    try {
+      if (kind === 'txt') {
+        const blob = new Blob(['\ufeff' + this._buildPlainText(key)], { type: 'text/plain;charset=utf-8' });
+        ModalEngine._downloadBlob(blob, this._buildFileName(key, 'txt'));
+        this._flash(wrapper, '¡TXT DESCARGADO!');
+      } else if (kind === 'word') {
+        const blob = new Blob(['\ufeff' + this._buildWordHtml(key)], { type: 'application/msword;charset=utf-8' });
+        ModalEngine._downloadBlob(blob, this._buildFileName(key, 'doc'));
+        this._flash(wrapper, '¡WORD DESCARGADO!');
+      } else if (kind === 'copy') {
+        await ModalEngine._copyToClipboard(this._buildPlainText(key));
+        this._flash(wrapper, '¡COPIADO!');
+      } else if (kind === 'pdf') {
+        this._flash(wrapper, 'GENERANDO PDF...');
+        await this._exportPdf(key);
+        this._flash(wrapper, '¡PDF DESCARGADO!');
+      }
+    } catch (err) {
+      console.error('[ListExportEngine] Error al exportar:', err);
+      this._flash(wrapper, 'ERROR AL EXPORTAR', true);
+    }
+  },
+
+  /* Crea el botón desplegable y lo inserta antes del contador de registros */
+  _mount(key) {
+    const cfg = this.SECTIONS[key];
+    const bar = document.querySelector(cfg.barSelector);
+    if (!bar || bar.querySelector('.list-export-dropdown')) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'kpi-export-dropdown list-export-dropdown';
+    wrapper.innerHTML = `
+      <button type="button" class="kpi-export-btn" aria-haspopup="true" aria-expanded="false" title="Exportar la lista visible">
+        <i class="bi bi-download"></i>
+        <span class="kpi-export-label">EXPORTAR LISTA</span>
+        <i class="bi bi-chevron-down kpi-export-caret"></i>
+      </button>
+      <ul class="kpi-export-menu d-none" role="menu">
+        <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="pdf"><i class="bi bi-file-earmark-pdf"></i> Exportar a PDF</button></li>
+        <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="word"><i class="bi bi-file-earmark-word"></i> Exportar a Word (.doc)</button></li>
+        <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="txt"><i class="bi bi-file-earmark-text"></i> Exportar a Archivo de Texto (.txt)</button></li>
+        <li role="none"><button type="button" role="menuitem" class="kpi-export-item" data-export="copy"><i class="bi bi-clipboard"></i> Copiar al Portapapeles</button></li>
+      </ul>`;
+
+    const count = bar.querySelector('.table-count');
+    if (count) bar.insertBefore(wrapper, count); else bar.appendChild(wrapper);
+
+    const menu = wrapper.querySelector('.kpi-export-menu');
+    wrapper.querySelector('.kpi-export-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const abrir = menu.classList.contains('d-none');
+      this._closeAllMenus();
+      this._toggleMenu(wrapper, abrir);
+    });
+    menu.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-export]');
+      if (!item) return;
+      e.stopPropagation();
+      this._toggleMenu(wrapper, false);
+      this._handle(key, item.getAttribute('data-export'), wrapper);
+    });
+  },
+
+  init() {
+    if (this._initialized) return;
+    this._initialized = true;
+
+    Object.keys(this.SECTIONS).forEach(key => this._mount(key));
+
+    // Cierres globales del menú (clic fuera, Escape, scroll, resize)
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.list-export-dropdown')) this._closeAllMenus();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this._closeAllMenus();
+    });
+    window.addEventListener('resize', () => this._closeAllMenus());
+    window.addEventListener('scroll', () => this._closeAllMenus(), true);
+  },
+};
+window.ListExportEngine = ListExportEngine;
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => ListExportEngine.init());
+} else {
+  ListExportEngine.init();
+}
 
 
 
@@ -1627,6 +2273,8 @@ const TableEngine = {
   renderExcluidos(records) {
     const tbody = document.querySelector('#tableExcluidos tbody');
     if (!tbody) return;
+
+    this._excluidosRecords = records;  // usado por ListExportEngine
 
     tbody.innerHTML = records.map((r, i) => `
       <tr>
@@ -2277,6 +2925,8 @@ const AbsenceEngine = {
     const tbody = document.getElementById('tableAusenciasBody');
     if (!tbody) return;
 
+    this._visibleData = data;  // usado por ListExportEngine (respeta nivel + búsqueda)
+
     if (data.length === 0) {
       tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--text-dim);padding:32px">
         No hay registros con fecha de falta disponibles
@@ -2332,6 +2982,7 @@ const AbsenceEngine = {
   },
 
   _currentData: [],
+  _visibleData: [],
   _activeLevel: '',
   _activeSearch: '',
 
@@ -5457,3 +6108,2289 @@ document.addEventListener('DOMContentLoaded', () => {
     definidas en el objeto).
   */
 });
+
+/* ================================================================
+   MÓDULOS FUSIONADOS: SebastianAI + KpiHelpEngine + ReporteEjecutivoEngine
+   ────────────────────────────────────────────────────────────
+   Se conservan las 3 IIFE originales (function(){...})() TAL CUAL.
+   Motivo (no son redundantes, son obligatorias): los 3 archivos
+   declaran identificadores de nivel superior que CHOCAN entre sí
+   -- p. ej. `init`, `STYLE_ID`/`injectStyles`/`inyectarEstilos`,
+   `obtenerRecomendaciones`, `el`, `t`, `chip`, `wrap`, `menuEl`,
+   `critico`, `alerta`, `normal`, `vigilar`, `usuario`, `opciones`,
+   entre otros -- tanto entre sí como, en varios casos, con nombres
+   ya usados en este mismo app.js. Sin sus IIFE, cualquiera de esas
+   colisiones sería un `SyntaxError: Identifier '...' has already
+   been declared` que rompería la carga COMPLETA del script (no solo
+   del módulo en cuestión). Cada IIFE es, por diseño, el mecanismo
+   que evita justamente ese problema -- se conservan intactas.
+
+   Cada módulo se auto-inicializa exactamente igual que en su
+   archivo original (mismo patrón `if (document.readyState ===
+   'loading') ... else init()` al final de cada IIFE), así que no
+   hace falta enganchar nada manualmente aquí.
+
+   window.SebastianAI, window.KpiHelpEngine y window.
+   ReporteEjecutivoEngine (si aplica) se siguen exponiendo
+   exactamente igual que antes -- ninguna API pública cambia.
+================================================================ */
+
+
+/* ---- SebastianAI.js ---- */
+/* ════════════════════════════════════════════════════════════
+   SebastianAI.js
+   ────────────────────────────────────────────────────────────
+   Asistente Virtual (Bot de Comandos) — módulo 100% INDEPENDIENTE.
+
+   Qué hace:
+   - Botón flotante (esquina inferior) con animación de "respiración".
+   - Ventana de chat propia, con sus estilos inyectados vía <style>
+     y consumiendo las MISMAS variables CSS nativas del proyecto
+     (var(--bg-card), var(--text-main), var(--gold), etc.), así que
+     hereda Modo Claro/Oscuro automáticamente sin JS propio de tema.
+   - Flujo de bienvenida secuencial la primera vez que se abre el
+     chat en la sesión (sessionStorage, con llave propia).
+   - NO usa ninguna API de IA externa: es un parser de comandos
+     (switch/regex) que LEE directamente el DOM ya renderizado
+     (valores de las tarjetas KPI, `<select>` de filtros y el
+     usuario en sesión).
+
+   Por qué esto es seguro para el control de acceso (RBAC):
+   Este módulo NUNCA toca DataStore, AccessManager ni ningún dato
+   crudo. Solo lee `textContent`/`value` de elementos que YA están
+   en el DOM — y esos elementos ya fueron pintados por UIController
+   después de que AccessManager filtró los datos según el usuario en
+   sesión. En otras palabras: si el usuario no puede ver un dato en
+   pantalla, Sebastián tampoco puede leerlo, porque nunca llegó a
+   existir en el DOM. No hay bypass posible de los permisos.
+
+   Qué NO hace (a propósito):
+   - No importa, modifica ni referencia AccessManager.js,
+     SecurityConfig.js, USUARIOS.JS, ChartEngine, TableEngine,
+     DataStore ni KPIEngine. Solo LEE nodos del DOM ya existentes.
+   - No agrega listeners en fase de captura ni intercepta clics de
+     otros módulos (LazyModals, SwitchSessionEngine, etc.).
+   - No llama a ninguna API externa de IA — 100% parser local.
+
+   Cómo usarlo:
+   Agrega este script en index.html, en cualquier orden respecto a
+   los demás módulos independientes (no depende de ninguno, salvo
+   que si TelegramEngine.js ya está cargado, opcionalmente podría
+   auditar el uso — no lo hace por defecto, ver nota al final):
+       <script src="SebastianAI.js"></script>
+   Coloca el ícono del botón junto a index.html con el nombre exacto
+   configurado en ICON_SRC más abajo (por defecto: "icon_1.png").
+   ════════════════════════════════════════════════════════════ */
+
+(function () {
+  'use strict';
+
+  /* ── Configuración ── */
+  const ICON_SRC        = 'icon_1.png'; // ruta del ícono del botón flotante
+  const BOT_NAME         = 'Sebastián';
+  const WELCOME_FLAG_BASE = 'sebastianai_welcomed'; // sessionStorage — una vez por USUARIO, por sesión de pestaña
+  const MENU_INFORMED_BASE = 'sebastianai_menu_informed'; // sessionStorage — aviso proactivo del Menú, una vez por USUARIO
+  const STYLE_ID          = 'sebastianAIStyles';
+  const FAB_ID             = 'sebastianAIFab';
+  const PANEL_ID            = 'sebastianAIPanel';
+
+  const FALLBACK_MSG =
+    'NO TENGO EL ADIESTRAMIENTO NECESARIO PARA RESPONDER A ELLO PERO LO TENDRE EN CUENTA PARA UNA PROXIMA CONSULTA';
+
+  /* Catálogo ÚNICO de comandos — se usa tanto en el flujo de
+     bienvenida (ahora muestra TODOS) como en el comando "ayuda".
+     Cubre TODAS las secciones del dashboard: KPIs, filtros, tablas,
+     monitor de ausencias, reporte cargado, tema, sesión, el botón
+     "Menú" del sidebar, y un resumen que las junta todas. */
+  const ALL_COMMANDS = [
+    'Reporte Ejecutivo',
+    '¿Cuál es el total de asistencia?',
+    '¿Cómo van las células?',
+    '¿Cómo va el servicio?',
+    '¿Cuántos nuevos hay?',
+    '¿Qué grupo ministerial estoy viendo?',
+    '¿Cuáles son mis filtros activos?',
+    '¿Qué reporte está cargado?',
+    '¿Cómo está el monitor de ausencias?',
+    '¿Cuántas personas hay en la tabla?',
+    '¿Cómo va mi tendencia?',
+    '¿En qué tema estoy?',
+    '¿Qué usuario tengo activo?',
+    '¿Qué hace cada botón del Menú?',
+    'Dame un resumen completo',
+  ];
+
+  /* ══════════════════════════════════════════════════════════
+     ESTILOS — inyectados aislados, consumen las variables CSS
+     nativas del proyecto (definidas en :root / [data-theme="light"]
+     en style.css) para que el chat cambie de tema automáticamente
+     junto con el resto del dashboard, sin ningún JS propio de tema.
+     ══════════════════════════════════════════════════════════ */
+  function injectStyles() {
+    /* CSS ahora vive en style.css — ya no se inyecta por JS. */
+    return;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     LECTOR DE PANTALLA — extrae SOLO lo que ya está en el DOM.
+     Nunca consulta datos crudos ni AccessManager directamente.
+     ══════════════════════════════════════════════════════════ */
+  const Reader = {
+    text(id, fallback = 'No disponible en este momento') {
+      const el = document.getElementById(id);
+      if (!el) return fallback;
+      const t = (el.textContent || '').trim();
+      return t !== '' ? t : fallback;
+    },
+
+    /* Si el valor está en medio del overlay "Recalculando…"
+       (ver UIController._setKpisRecalculando en app.js), lo detecta
+       para no reportar ese texto como si fuera un dato real. */
+    isRecalculando(id) {
+      const el = document.getElementById(id);
+      return !!el && el.classList.contains('kpi-recalculando');
+    },
+
+    selectLabel(id, fallback = 'Todos') {
+      const el = document.getElementById(id);
+      if (!el || typeof el.selectedIndex !== 'number' || el.selectedIndex < 0) return fallback;
+      const opt = el.options[el.selectedIndex];
+      return opt ? opt.textContent.trim() : fallback;
+    },
+
+    sesionActiva() {
+      try {
+        return sessionStorage.getItem('ccrm_dashboard_user') || null;
+      } catch (e) {
+        return null;
+      }
+    },
+
+    temaActivo() {
+      const t = document.documentElement.getAttribute('data-theme');
+      return t === 'light' ? 'Claro' : 'Oscuro';
+    },
+
+    /* Nombre del reporte/archivo cargado — mismo nodo que pinta
+       UIController al cargar el Excel (#reportTitle) y su respaldo
+       en el pie de página (#footerFile). */
+    reporteActivo() {
+      const titulo = this.text('reportTitle', '');
+      if (titulo && titulo !== 'Cargue un archivo para comenzar') return titulo;
+      const footer = this.text('footerFile', '');
+      return footer || null;
+    },
+  };
+
+  /* ══════════════════════════════════════════════════════════
+     PARSER DE COMANDOS — switch/regex, sin ninguna API externa.
+     Cada handler lee el DOM vía Reader y arma la respuesta.
+     ══════════════════════════════════════════════════════════ */
+  function normalizar(str) {
+    return (str || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // quita acentos
+  }
+
+  function avisoSiRecalculando(ids) {
+    if (ids.some(id => Reader.isRecalculando(id))) {
+      return 'Justo estoy recalculando esos números — dame un segundo y vuelve a preguntarme 🙂';
+    }
+    return null;
+  }
+
+  /* Trae las recomendaciones del MISMO motor (decisionEngine) que usa
+     el botón "?" de cada tarjeta KPI, vía la API pública que expone
+     KpiHelpEngine.js (window.KpiHelpEngine.getRecomendaciones). Acepta
+     uno o varios kpiId (p. ej. célula SI + célula NO en una sola
+     respuesta) y fusiona el resultado sin duplicar por `comando`. Si
+     KpiHelpEngine.js no está cargado, devuelve [] silenciosamente —
+     el chat sigue funcionando igual, solo sin los chips sugeridos. */
+  /* Umbral de inasistencia (%) a partir del cual un frente se
+     considera "para vigilar"/"crítico". Un solo número, fácil de
+     ajustar si el criterio cambia más adelante. */
+  const UMBRAL_VIGILAR_PCT  = 15;
+  const UMBRAL_CRITICO_PCT  = 30;
+
+  /* Extrae el número de un texto tipo "37%" / "37,5 %" ya pintado en
+     el DOM. Devuelve `null` si el texto no trae un porcentaje
+     reconocible (dato ausente, "No disponible en este momento", una
+     tarjeta que no existe en la vista restringida del usuario, etc.)
+     — SIN inventar ni recalcular el número: solo lee lo que
+     Reader.text() ya trajo del DOM. */
+  function parsePorcentaje(texto) {
+    if (!texto) return null;
+    const m = texto.match(/(-?\d+(?:[.,]\d+)?)\s*%/);
+    if (!m) return null;
+    return parseFloat(m[1].replace(',', '.'));
+  }
+
+  /* Extrae el número entero de un texto tipo "128" / "128 registros"
+     ya pintado en el DOM. Devuelve 0 si no hay número reconocible
+     (mismo criterio fail-safe que parsePorcentaje). */
+  function parseEntero(texto) {
+    if (!texto) return 0;
+    const m = texto.match(/-?\d+/);
+    return m ? parseInt(m[0], 10) : 0;
+  }
+
+  /* Clasifica un % de INASISTENCIA (más alto = peor) en tres niveles.
+     Fail-safe: sin dato → 'sin dato', tratado como digno de mención
+     pero no como crítico (no se puede diagnosticar lo que no se
+     puede leer). */
+  function clasificarInasistencia(pct) {
+    if (pct === null) return { icon: '❔', nivel: 'sin dato' };
+    if (pct >= UMBRAL_CRITICO_PCT) return { icon: '🔴', nivel: 'crítico' };
+    if (pct >= UMBRAL_VIGILAR_PCT) return { icon: '⚠️', nivel: 'para vigilar' };
+    return { icon: '✅', nivel: 'saludable' };
+  }
+
+  /**
+   * Analiza UN frente de asistencia (Célula / Servicio / Ambos): lee
+   * SI, NO y % de inasistencia ya renderizados (Reader.text — mismo
+   * dato que ve el usuario en su tarjeta KPI, ya filtrado por
+   * AccessManager/vista restringida), lo clasifica y arma su propia
+   * línea de diagnóstico + una recomendación puntual según el nivel.
+   *
+   * @param {string} nombre        - Nombre legible del frente (ej. 'Célula').
+   * @param {string} siId          - id del DOM con el valor "SI".
+   * @param {string} noId          - id del DOM con el valor "NO".
+   * @param {string} pctNoId       - id del DOM con el % de inasistencia.
+   * @param {string} kpiIdNo       - kpi-id (KpiHelpEngine) para las recomendaciones si no está saludable.
+   * @param {string} recomendacion - Texto de acción sugerida si el frente NO está saludable.
+   * @returns {{texto:string, nivel:string, kpiIdSiCritico:string|null}}
+   */
+  function analizarFrenteAsistencia(nombre, siId, noId, pctNoId, kpiIdNo, recomendacion) {
+    const si = Reader.text(siId);
+    const no = Reader.text(noId);
+    const pct = parsePorcentaje(Reader.text(pctNoId, ''));
+    const clase = clasificarInasistencia(pct);
+    const pctTexto = pct === null ? 'sin dato' : `${pct}%`;
+
+    const accion = clase.nivel === 'saludable'
+      ? 'Sin acción requerida por ahora.'
+      : clase.nivel === 'sin dato'
+        ? 'No se pudo leer el porcentaje — revisa manualmente esta tarjeta.'
+        : recomendacion;
+
+    return {
+      texto: `${clase.icon} ${nombre} — SI: ${si} · NO: ${no} (${pctTexto} de inasistencia, ${clase.nivel})\n   → ${accion}`,
+      nivel: clase.nivel,
+      kpiIdSiCritico: (clase.nivel === 'para vigilar' || clase.nivel === 'crítico') ? kpiIdNo : null,
+    };
+  }
+
+  /**
+   * Analiza UN frente de "Nuevos" (Célula / Servicio): a diferencia de
+   * los frentes de asistencia, aquí más alto siempre es mejor (no hay
+   * "% de inasistencia" que evaluar) — el diagnóstico es simplemente
+   * si hubo o no ingresos nuevos en el periodo del reporte.
+   */
+  function analizarFrenteNuevos(nombre, valorId, kpiIdSiCero, recomendacionSiCero) {
+    const valorTexto = Reader.text(valorId, '0');
+    const valor = parseEntero(valorTexto);
+    const icon = valor > 0 ? '✅' : '⚠️';
+    const nivel = valor > 0 ? 'con ingresos nuevos' : 'sin ingresos nuevos';
+    const accion = valor > 0
+      ? 'Da seguimiento cercano a los recién llegados para que no se pierdan en las próximas semanas.'
+      : recomendacionSiCero;
+
+    return {
+      texto: `${icon} ${nombre}: ${valorTexto} (${nivel})\n   → ${accion}`,
+      kpiIdSiCritico: valor === 0 ? kpiIdSiCero : null,
+    };
+  }
+
+  /* Analiza el Monitor de Ausencias completo (las 4 categorías) y
+     prioriza la recomendación por el nivel más urgente presente. */
+  function analizarMonitorAusencias() {
+    const normal  = parseEntero(Reader.text('ausNormalCount', '0'));
+    const vigilar = parseEntero(Reader.text('ausWatchCount', '0'));
+    const alerta  = parseEntero(Reader.text('ausWarnCount', '0'));
+    const critico = parseEntero(Reader.text('ausCritCount', '0'));
+
+    let icon = '✅', nivel = 'bajo control', accion = 'No hay casos urgentes en el monitor de ausencias.';
+    if (critico > 0) {
+      icon = '🔴'; nivel = 'requiere atención inmediata';
+      accion = `Prioriza contacto directo esta semana con las ${critico} persona(s) en estado Crítico.`;
+    } else if (alerta > 0) {
+      icon = '⚠️'; nivel = 'para vigilar de cerca';
+      accion = `Da seguimiento a las ${alerta} persona(s) en Alerta antes de que pasen a Crítico.`;
+    }
+
+    return `${icon} Monitor de Ausencias — Normal: ${normal} · A vigilar: ${vigilar} · Alerta: ${alerta} · Crítico: ${critico} (${nivel})\n   → ${accion}`;
+  }
+
+  /**
+   * Motor de análisis PROFUNDO para el "Análisis con IA"
+   * (AiAnalysisButton.js): recorre KPI por KPI, cada uno con su propio
+   * diagnóstico y recomendación puntual, y luego las secciones de
+   * abajo (tablas + Monitor de Ausencias) — todo a partir de
+   * Reader.text() sobre el DOM YA renderizado (KPIEngine + AccessManager
+   * en app.js), así que respeta exactamente la misma vista
+   * filtrada/restringida que el usuario tiene en pantalla en ese
+   * momento: este motor nunca lee ni calcula datos fuera de su alcance.
+   *
+   * @returns {{texto:string, kpiIds:string[]}}
+   */
+  function analizarDashboardCompleto() {
+    const nombre = Reader.reporteActivo();
+
+    const frenteCelula = analizarFrenteAsistencia(
+      'Célula', 'kpiCelulasSI', 'kpiCelulasNO', 'kpiCelulasNOPct', 'celula-no',
+      'Filtra por Grupo Ministerial para ver si la inasistencia es general o de un líder/célula puntual, y prioriza contacto con quienes llevan más tiempo sin asistir.'
+    );
+    const frenteServicio = analizarFrenteAsistencia(
+      'Servicio', 'kpiServicioSI', 'kpiServicioNO', 'kpiServicioNOPct', 'servicio-no',
+      'Revisa si la inasistencia a servicio coincide con la de célula (posible desconexión general) o es un frente aparte.'
+    );
+    const frenteAmbos = analizarFrenteAsistencia(
+      'Ambos (Célula + Servicio)', 'kpiAmbosSI', 'kpiAmbosNO', 'kpiAmbosNOPct', 'ambos-no',
+      'Estas personas no asistieron a NADA en el periodo — son la prioridad más alta de seguimiento pastoral.'
+    );
+    const frenteNuevosCelula = analizarFrenteNuevos(
+      'Nuevos en Célula', 'kpiNuevosCelula', 'nuevos-celula',
+      'No hubo ingresos nuevos a célula en este periodo — evalúa estrategias de invitación con los líderes de cada grupo.'
+    );
+    const frenteNuevosServicio = analizarFrenteNuevos(
+      'Nuevos en Servicio', 'kpiNuevosServicio', 'nuevos-servicio',
+      'No hubo visitas nuevas al servicio en este periodo — evalúa reforzar la difusión/invitación general.'
+    );
+    const monitorAusencias = analizarMonitorAusencias();
+
+    // Recomendaciones: siempre 'pct-general' + cada frente que NO salió "saludable"
+    const kpiIds = ['pct-general'];
+    [frenteCelula, frenteServicio, frenteAmbos, frenteNuevosCelula, frenteNuevosServicio]
+      .forEach(f => { if (f.kpiIdSiCritico) kpiIds.push(f.kpiIdSiCritico); });
+
+    const totalFrentesAtencion = kpiIds.length - 1;
+    const cierre = totalFrentesAtencion > 0
+      ? `${totalFrentesAtencion} frente(s) necesitan atención — revisa las recomendaciones que te dejo abajo.`
+      : `Todos los frentes están en niveles saludables. Buen trabajo — sigue así.`;
+
+    const texto = [
+      `📊 REPORTE EJECUTIVO — ${nombre || 'sin reporte cargado'}`,
+      `Vista: ${Reader.selectLabel('filterGroup', 'Todos los grupos')} · Usuario: ${Reader.sesionActiva() || 'sin sesión'}`,
+      ``,
+      `Total registrados: ${Reader.text('kpiTotal')} · Asistencia general: ${Reader.text('kpiPctGeneral')}`,
+      ``,
+      frenteCelula.texto,
+      ``,
+      frenteServicio.texto,
+      ``,
+      frenteAmbos.texto,
+      ``,
+      frenteNuevosCelula.texto,
+      ``,
+      frenteNuevosServicio.texto,
+      ``,
+      `📋 Personas: ${Reader.text('countPersonas', '—')} · Excluidos: ${Reader.text('countExcluidos', '—')} · Nuevos: ${Reader.text('countNuevos', '—')} · Histórico: ${Reader.text('countHistorico', '—')}`,
+      ``,
+      monitorAusencias,
+      ``,
+      `Diagnóstico general: ${cierre}`,
+    ].join('\n');
+
+    return { texto, kpiIds };
+  }
+
+  /* Frase EXACTA que envía el botón "Reporte Ejecutivo" (#btnReporteEjecutivo,
+     ver init() más abajo) vía window.SebastianAI.preguntar('Reporte Ejecutivo'),
+     y también el `comando` que agrega KpiHelpEngine.decisionEngine() como
+     opción sugerida permanente ('REPORTE EJECUTIVO'). Se compara normalizada
+     (sin acentos/mayúsculas) para tolerar cualquier diferencia menor de
+     capitalización — nunca al revés: este archivo no decide el texto del
+     botón, solo lo reconoce. */
+  const FRASE_ANALISIS_IA = normalizar('Reporte Ejecutivo');
+
+  function obtenerRecomendaciones(kpiIds) {
+    if (typeof window.KpiHelpEngine === 'undefined' || typeof window.KpiHelpEngine.getRecomendaciones !== 'function') {
+      return [];
+    }
+    const ids = Array.isArray(kpiIds) ? kpiIds : [kpiIds];
+    const vistos = new Set();
+    const combinadas = [];
+    ids.forEach(id => {
+      (window.KpiHelpEngine.getRecomendaciones(id) || []).forEach(opt => {
+        if (!opt || !opt.comando || vistos.has(opt.comando)) return;
+        vistos.add(opt.comando);
+        combinadas.push(opt);
+      });
+    });
+    return combinadas;
+  }
+
+  const COMMANDS = [
+    /* ── Comandos que disparan los CHIPS del motor de recomendaciones
+       (ver OPCIONES_FIJAS_POR_KPI / decisionEngine en KpiHelpEngine.js)
+       — antes caían todos en el fallback porque el parser no los
+       reconocía. Van primero en la lista para que no los intercepte
+       ningún regex más genérico de más abajo (p. ej. "detalle célula"
+       contiene "célula", que si no fuera primero lo capturaría el
+       comando genérico de Célula). No abren el modal de personas —
+       eso sigue siendo EXCLUSIVO de hacer clic en la tarjeta — solo
+       dan más contexto en números y, cuando aplica, invitan a hacerlo. */
+    {
+      test: t => /\bcompar(ar|a)\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiCelulasSI', 'kpiServicioSI']);
+        if (aviso) return { text: aviso };
+        return {
+          text: [
+            `Comparando Célula vs. Servicio con tus filtros actuales:`,
+            `• Célula — SI: ${Reader.text('kpiCelulasSI')} (${Reader.text('kpiCelulasSIPct')}) · NO: ${Reader.text('kpiCelulasNO')} (${Reader.text('kpiCelulasNOPct')})`,
+            `• Servicio — SI: ${Reader.text('kpiServicioSI')} (${Reader.text('kpiServicioSIPct')}) · NO: ${Reader.text('kpiServicioNO')} (${Reader.text('kpiServicioNOPct')})`,
+          ].join('\n'),
+          kpiIds: ['pct-celula', 'pct-servicio'],
+        };
+      },
+    },
+    {
+      test: t => /\bdetalle\s+celula\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiCelulasNO']);
+        if (aviso) return { text: aviso };
+        return {
+          text: `Célula — no asistieron: ${Reader.text('kpiCelulasNO')} (${Reader.text('kpiCelulasNOPct')}). Para ver los nombres, haz clic directamente en la tarjeta de Célula.`,
+          kpiIds: ['celula-no'],
+        };
+      },
+    },
+    {
+      test: t => /\bdetalle\s+servicio\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiServicioNO']);
+        if (aviso) return { text: aviso };
+        return {
+          text: `Servicio — no asistieron: ${Reader.text('kpiServicioNO')} (${Reader.text('kpiServicioNOPct')}). Para ver los nombres, haz clic directamente en la tarjeta de Servicio.`,
+          kpiIds: ['servicio-no'],
+        };
+      },
+    },
+    {
+      test: t => /\bdetalle\s+ambos\s+si\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiAmbosSI']);
+        if (aviso) return { text: aviso };
+        return {
+          text: `Núcleo comprometido (asistieron a ambos): ${Reader.text('kpiAmbosSI')} (${Reader.text('kpiAmbosSIPct')}). Para ver los nombres, haz clic directamente en la tarjeta de Ambos SI.`,
+          kpiIds: ['ambos-si'],
+        };
+      },
+    },
+    {
+      test: t => /\bdetalle\s+ambos\s+no\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiAmbosNO']);
+        if (aviso) return { text: aviso };
+        return {
+          text: `En riesgo (no asistieron a ninguno): ${Reader.text('kpiAmbosNO')} (${Reader.text('kpiAmbosNOPct')}). Para ver los nombres, haz clic directamente en la tarjeta de Ambos NO.`,
+          kpiIds: ['ambos-no'],
+        };
+      },
+    },
+    {
+      test: t => /\bdetalle\s+nuevos\s+celula\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiNuevosCelula']);
+        if (aviso) return { text: aviso };
+        return {
+          text: `Nuevos en Célula: ${Reader.text('kpiNuevosCelula')}. Para ver los nombres, haz clic directamente en la tarjeta de Nuevos en Célula.`,
+          kpiIds: ['nuevos-celula'],
+        };
+      },
+    },
+    {
+      test: t => /\bdetalle\s+nuevos\s+servicio\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiNuevosServicio']);
+        if (aviso) return { text: aviso };
+        return {
+          text: `Nuevos en Servicio: ${Reader.text('kpiNuevosServicio')}. Para ver los nombres, haz clic directamente en la tarjeta de Nuevos en Servicio.`,
+          kpiIds: ['nuevos-servicio'],
+        };
+      },
+    },
+    {
+      test: t => /\bplan de seguimiento\b/.test(t),
+      run: () => ({
+        text: [
+          `Un plan de seguimiento simple para quienes están en riesgo:`,
+          `1. Filtra por Grupo Ministerial para acotar a un líder/célula específico.`,
+          `2. Haz clic en la tarjeta "Ausentes en Ambos" para ver la lista de personas.`,
+          `3. Prioriza contacto directo con quienes llevan más tiempo sin asistir (revisa el Monitor de Ausencias — pregúntame "ausencias").`,
+        ].join('\n'),
+        kpiIds: ['ambos-no'],
+      }),
+    },
+    {
+      test: t => /\banalizar caida\b/.test(t),
+      run: () => ({
+        text: [
+          `Para analizar una caída, te sugiero en este orden:`,
+          `1. Activa una línea base de tendencia (Menú → Historial) y pregúntame "tendencia" para ver el cambio real.`,
+          `2. Filtra por Grupo Ministerial para ver si la caída es general o de un grupo puntual.`,
+          `3. Revisa el Monitor de Ausencias (pregúntame "ausencias") para ver si hay personas en estado Crítico o de Alerta.`,
+        ].join('\n'),
+      }),
+    },
+
+    {
+      test: t => /\b(usuario|sesion|quien soy|mi nombre)\b/.test(t),
+      run: () => {
+        const user = Reader.sesionActiva();
+        return user
+          ? `Tu sesión activa es: ${user}.`
+          : 'No detecto ninguna sesión activa en este momento.';
+      },
+    },
+    {
+      test: t => /\bgrupo\b/.test(t),
+      run: () => `Grupo Ministerial seleccionado: ${Reader.selectLabel('filterGroup', 'Todos los grupos')}.`,
+    },
+    {
+      test: t => /\b(filtros?|estado de los filtros)\b/.test(t) && !/\bgrupo\b/.test(t),
+      run: () => {
+        return [
+          `Estos son tus filtros activos ahora mismo:`,
+          `• Grupo Ministerial: ${Reader.selectLabel('filterGroup', 'Todos los grupos')}`,
+          `• Estado: ${Reader.selectLabel('filterEstado', 'Todos')}`,
+          `• Célula: ${Reader.selectLabel('filterCelula', 'Todas')}`,
+          `• Servicio: ${Reader.selectLabel('filterServicio', 'Todos')}`,
+          `• Nuevo: ${Reader.selectLabel('filterNuevo', 'Todos')}`,
+        ].join('\n');
+      },
+    },
+    {
+      test: t => /\b(total|asistencia total|kpi total)\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiTotal', 'kpiPctGeneral']);
+        if (aviso) return aviso;
+        return {
+          text: `El total de asistencia con tus filtros actuales es ${Reader.text('kpiTotal')} (${Reader.text('kpiPctGeneral')} de asistencia general).`,
+          kpiIds: ['total', 'pct-general'],
+        };
+      },
+    },
+    {
+      test: t => /\bcelula|c[ée]lulas?\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiCelulasSI', 'kpiCelulasNO']);
+        if (aviso) return aviso;
+        return {
+          text: [
+            `Célula — con tus filtros actuales:`,
+            `• Asistieron (SI): ${Reader.text('kpiCelulasSI')} (${Reader.text('kpiCelulasSIPct')})`,
+            `• No asistieron (NO): ${Reader.text('kpiCelulasNO')} (${Reader.text('kpiCelulasNOPct')})`,
+          ].join('\n'),
+          kpiIds: ['celula-si', 'celula-no'],
+        };
+      },
+    },
+    {
+      test: t => /\bservicio\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiServicioSI', 'kpiServicioNO']);
+        if (aviso) return aviso;
+        return {
+          text: [
+            `Servicio — con tus filtros actuales:`,
+            `• Asistieron (SI): ${Reader.text('kpiServicioSI')} (${Reader.text('kpiServicioSIPct')})`,
+            `• No asistieron (NO): ${Reader.text('kpiServicioNO')} (${Reader.text('kpiServicioNOPct')})`,
+          ].join('\n'),
+          kpiIds: ['servicio-si', 'servicio-no'],
+        };
+      },
+    },
+    {
+      test: t => /\b(ambos|celula y servicio)\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiAmbosSI', 'kpiAmbosNO']);
+        if (aviso) return aviso;
+        return {
+          text: [
+            `Célula y Servicio (ambos) — con tus filtros actuales:`,
+            `• Asistieron a ambos (SI): ${Reader.text('kpiAmbosSI')} (${Reader.text('kpiAmbosSIPct')})`,
+            `• No asistieron a ninguno (NO): ${Reader.text('kpiAmbosNO')} (${Reader.text('kpiAmbosNOPct')})`,
+          ].join('\n'),
+          kpiIds: ['ambos-si', 'ambos-no'],
+        };
+      },
+    },
+    {
+      test: t => /\bnuevos?\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiNuevosCelula', 'kpiNuevosServicio']);
+        if (aviso) return aviso;
+        return {
+          text: [
+            `Personas nuevas — con tus filtros actuales:`,
+            `• En Célula: ${Reader.text('kpiNuevosCelula')}`,
+            `• En Servicio: ${Reader.text('kpiNuevosServicio')}`,
+          ].join('\n'),
+          kpiIds: ['nuevos-celula', 'nuevos-servicio'],
+        };
+      },
+    },
+    {
+      test: t => /\b(reporte|archivo( cargado)?|excel)\b/.test(t),
+      run: () => {
+        const nombre = Reader.reporteActivo();
+        return nombre
+          ? `El reporte cargado actualmente es: "${nombre}".`
+          : 'Todavía no hay ningún reporte cargado en el dashboard.';
+      },
+    },
+    {
+      test: t => /\b(personas|tabla de personas)\b/.test(t),
+      run: () => `Tabla de Personas: ${Reader.text('countPersonas', 'sin datos')}.`,
+    },
+    {
+      test: t => /\bexcluidos?\b/.test(t),
+      run: () => `Tabla de Excluidos: ${Reader.text('countExcluidos', 'sin datos')}.`,
+    },
+    {
+      test: t => /\b(historico|histórico)\b/.test(t),
+      run: () => `Tabla de Histórico: ${Reader.text('countHistorico', 'sin datos')}.`,
+    },
+    {
+      test: t => /\b(ausencia|ausente|monitor de ausencias)\b/.test(t),
+      run: () => {
+        return [
+          `Monitor de Ausencias — con tus filtros actuales:`,
+          `• Normal: ${Reader.text('ausNormalCount', '0')}`,
+          `• A vigilar: ${Reader.text('ausWatchCount', '0')}`,
+          `• Alerta: ${Reader.text('ausWarnCount', '0')}`,
+          `• Crítico: ${Reader.text('ausCritCount', '0')}`,
+          `(${Reader.text('countAusencias', 'sin datos')})`,
+        ].join('\n');
+      },
+    },
+    {
+      test: t => /\b(resumen|todo|resumen completo|dashboard completo|panorama general)\b/.test(t),
+      run: () => {
+        const aviso = avisoSiRecalculando(['kpiTotal', 'kpiPctGeneral']);
+        const nombre = Reader.reporteActivo();
+
+        return {
+          text: [
+            `Resumen completo del dashboard ahora mismo:`,
+            ``,
+            `📄 Reporte: ${nombre || 'ninguno cargado'}`,
+            `👤 Usuario: ${Reader.sesionActiva() || 'sin sesión'}`,
+            `🎨 Tema: ${Reader.temaActivo()}`,
+            ``,
+            `🔎 Filtros: Grupo "${Reader.selectLabel('filterGroup', 'Todos los grupos')}" · Estado "${Reader.selectLabel('filterEstado', 'Todos')}" · Célula "${Reader.selectLabel('filterCelula', 'Todas')}" · Servicio "${Reader.selectLabel('filterServicio', 'Todos')}" · Nuevo "${Reader.selectLabel('filterNuevo', 'Todos')}"`,
+            ``,
+            aviso || [
+              `📊 KPIs — Total: ${Reader.text('kpiTotal')} (${Reader.text('kpiPctGeneral')})`,
+              `   Célula SI/NO: ${Reader.text('kpiCelulasSI')} / ${Reader.text('kpiCelulasNO')}`,
+              `   Servicio SI/NO: ${Reader.text('kpiServicioSI')} / ${Reader.text('kpiServicioNO')}`,
+              `   Ambos SI/NO: ${Reader.text('kpiAmbosSI')} / ${Reader.text('kpiAmbosNO')}`,
+              `   Nuevos (Célula/Servicio): ${Reader.text('kpiNuevosCelula')} / ${Reader.text('kpiNuevosServicio')}`,
+            ].join('\n'),
+            ``,
+            `📋 Tablas — Personas: ${Reader.text('countPersonas', '—')} · Excluidos: ${Reader.text('countExcluidos', '—')} · Nuevos: ${Reader.text('countNuevos', '—')} · Histórico: ${Reader.text('countHistorico', '—')}`,
+            ``,
+            `⏱️ Ausencias — Normal: ${Reader.text('ausNormalCount', '0')} · A vigilar: ${Reader.text('ausWatchCount', '0')} · Alerta: ${Reader.text('ausWarnCount', '0')} · Crítico: ${Reader.text('ausCritCount', '0')}`,
+          ].join('\n'),
+          kpiIds: ['pct-general'],
+        };
+      },
+    },
+    {
+      test: t => /\btendencia\b/.test(t),
+      run: () => {
+        const banner = document.getElementById('trendBaselineBanner');
+        const activa = !!banner && !banner.classList.contains('d-none');
+
+        if (!activa) {
+          return 'Todavía no tienes una línea base de tendencia activa. Para activarla: abre el Menú → Historial → y elige un reporte anterior como línea base de comparación.';
+        }
+
+        const archivo = Reader.text('trendBaselineFileName', 'línea base');
+
+        // Mismos valueId que declara KPI_DETAIL_MAP en app.js — TrendEngine
+        // pinta `${valueId}TrendRow` (fila, oculta con d-none si ese KPI no
+        // tiene delta), `${valueId}Trend` (ícono + %) y `${valueId}TrendPrev`
+        // ("antes: N") para cada uno.
+        const kpisConTendencia = [
+          { id: 'kpiTotal',          label: 'Total' },
+          { id: 'kpiCelulasSI',      label: 'Célula SI' },
+          { id: 'kpiCelulasNO',      label: 'Célula NO' },
+          { id: 'kpiServicioSI',     label: 'Servicio SI' },
+          { id: 'kpiServicioNO',     label: 'Servicio NO' },
+          { id: 'kpiAmbosSI',        label: 'Ambos SI' },
+          { id: 'kpiAmbosNO',        label: 'Ambos NO' },
+          { id: 'kpiNuevosCelula',   label: 'Nuevos Célula' },
+          { id: 'kpiNuevosServicio', label: 'Nuevos Servicio' },
+        ];
+
+        const lineas = kpisConTendencia
+          .map(({ id, label }) => {
+            const rowEl = document.getElementById(`${id}TrendRow`);
+            if (!rowEl || rowEl.classList.contains('d-none')) return null; // sin delta para este KPI
+            const cambio = Reader.text(`${id}Trend`, '');
+            const antes  = Reader.text(`${id}TrendPrev`, '');
+            if (!cambio) return null;
+            return `• ${label}: ${cambio}${antes ? ` (${antes})` : ''}`;
+          })
+          .filter(Boolean);
+
+        if (lineas.length === 0) {
+          return `Tienes activa la línea base "${archivo}", pero todavía no hay tendencia calculada para mostrar con tus filtros actuales.`;
+        }
+
+        return [`📈 Tendencia — comparando contra "${archivo}":`, ...lineas].join('\n');
+      },
+    },
+    {
+      test: t => /\b(menu|menú)\b/.test(t),
+      run: () => explicarMenu(),
+    },
+    {
+      test: t => /\b(tema|modo (claro|oscuro)|theme)\b/.test(t),
+      run: () => `El dashboard está en Modo ${Reader.temaActivo()} ahora mismo.`,
+    },
+    {
+      test: t => /\b(ayuda|comandos|help|opciones)\b/.test(t),
+      run: () => ({ text: 'Estos son todos los comandos que puedes usarme:', showCommandList: ALL_COMMANDS }),
+    },
+  ];
+
+  /* Texto explicativo de cada botón dentro del offcanvas "Menú" del
+     sidebar (#sidebarMenu en index.html). Es texto fijo (no lee datos
+     dinámicos) porque describe FUNCIONALIDAD de la interfaz, no datos
+     del reporte — se reutiliza tanto para el comando "menú" como para
+     el aviso proactivo cuando el usuario abre esa opción. */
+  function explicarMenu() {
+    return [
+      `El botón "Menú" abre el panel lateral con estas opciones:`,
+      `• Guardar — sube el reporte actual a GitHub (se activa solo cuando cargaste un Excel local).`,
+      `• Eliminar — borra un reporte guardado en el historial.`,
+      `• Base de Datos (Beta) — define el archivo predeterminado que se autocarga al iniciar sesión (pide tu token de GitHub cada vez, nunca lo guarda).`,
+      `• Historial — abre la lista de reportes guardados en GitHub para cargarlos o descargarlos.`,
+      `• Cambiar Sesión — cambia de usuario sin cerrar del todo el dashboard.`,
+      `• Cerrar sesión — termina tu sesión actual.`,
+      `• Versión Ligera — abre una versión alterna del dashboard, más liviana.`,
+    ].join('\n');
+  }
+
+  function procesarComando(rawText) {
+    const t = normalizar(rawText);
+
+    /* Bypass deliberado: la frase que envía AiAnalysisButton.js es
+       conocida y fija (no texto libre del usuario), pero comparte
+       palabras con comandos más genéricos — en particular "reporte",
+       que también dispara el comando de "¿qué archivo está cargado?"
+       (test: /\b(reporte|archivo( cargado)?|excel)\b/). Como ese
+       comando aparece ANTES en el array COMMANDS, sin este bypass
+       intercepta la frase antes de llegar al comando "resumen" y el
+       botón nunca dispara el análisis profundo. Resolverlo así (en
+       vez de reordenar COMMANDS o cambiar el texto del botón) evita
+       que cualquier futura palabra en común entre comandos vuelva a
+       romper esta conexión. */
+    if (t.includes(FRASE_ANALISIS_IA)) {
+      const aviso = avisoSiRecalculando(['kpiTotal', 'kpiPctGeneral']);
+      const { texto, kpiIds } = analizarDashboardCompleto();
+      return { text: aviso || texto, kpiIds };
+    }
+
+    for (const cmd of COMMANDS) {
+      if (cmd.test(t)) {
+        const result = cmd.run(t); // `t` = texto normalizado (minúsculas, sin acentos) — opcional, los run() existentes que no lo declaran simplemente lo ignoran
+        return typeof result === 'string' ? { text: result } : result;
+      }
+    }
+    return { text: FALLBACK_MSG };
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     UI — construcción del botón flotante y el panel de chat.
+     ══════════════════════════════════════════════════════════ */
+  let panelEl, bodyEl, inputEl, sendBtn, opened = false;
+
+  function crearFab() {
+    const fab = document.createElement('button');
+    fab.id = FAB_ID;
+    fab.type = 'button';
+    fab.setAttribute('aria-label', `Abrir chat con ${BOT_NAME}`);
+    fab.innerHTML = `<img src="${ICON_SRC}" alt="${BOT_NAME}"><span class="sebIA-badge" id="sebIA-badge">0</span>`;
+    fab.addEventListener('click', togglePanel);
+    document.body.appendChild(fab);
+    return fab;
+  }
+
+  function crearPanel() {
+    const panel = document.createElement('div');
+    panel.id = PANEL_ID;
+    panel.innerHTML = `
+      <div class="sebIA-header">
+        <img src="${ICON_SRC}" alt="${BOT_NAME}">
+        <div class="sebIA-header-title">
+          <strong>${BOT_NAME}</strong>
+          <span>● En línea</span>
+        </div>
+        <div class="sebIA-header-actions">
+          <button type="button" class="sebIA-icon-btn" id="sebIA-clear" aria-label="Borrar chat y recargar comandos" title="Borrar chat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 6h18"></path>
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+              <path d="M10 11v6"></path>
+              <path d="M14 11v6"></path>
+            </svg>
+          </button>
+          <button type="button" class="sebIA-icon-btn" id="sebIA-voice" aria-label="Activar lectura en voz alta" title="Leer respuestas en voz alta" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 5 6 9H2v6h4l5 4V5Z"></path>
+              <path d="M15.5 8.5a5 5 0 0 1 0 7"></path>
+              <path d="M18.5 5.5a9 9 0 0 1 0 13"></path>
+            </svg>
+          </button>
+          <button type="button" class="sebIA-close" aria-label="Cerrar chat">&times;</button>
+        </div>
+      </div>
+      <div class="sebIA-body" id="sebIA-body"></div>
+      <div class="sebIA-footer">
+        <input type="text" class="sebIA-input" id="sebIA-input" placeholder="Escribe tu consulta..." autocomplete="off">
+        <button type="button" class="sebIA-send" id="sebIA-send">Enviar</button>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    bodyEl  = panel.querySelector('#sebIA-body');
+    inputEl = panel.querySelector('#sebIA-input');
+    sendBtn = panel.querySelector('#sebIA-send');
+
+    panel.querySelector('.sebIA-close').addEventListener('click', togglePanel);
+    panel.querySelector('#sebIA-clear').addEventListener('click', limpiarChat);
+    panel.querySelector('#sebIA-voice').addEventListener('click', toggleVoz);
+    sendBtn.addEventListener('click', onEnviar);
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') onEnviar();
+    });
+
+    return panel;
+  }
+
+  /* ── Ícono de papelera: borra la conversación y solo vuelve a
+     mostrar la lista de comandos disponibles (NO repite el mensaje de
+     presentación completo — ese es exclusivo de la primera vez que se
+     abre el chat en la sesión, ver iniciarBienvenida). ── */
+  function limpiarChat() {
+    if (!bodyEl) return;
+    bodyEl.innerHTML = '';
+    agregarMensaje('Comandos disponibles:', 'bot');
+    agregarListaComandos(ALL_COMMANDS);
+  }
+
+  /* ── Ícono de altavoz: activa/desactiva que Sebastián LEA en voz
+     alta cada respuesta suya (Web Speech API — SpeechSynthesis, nativa
+     del navegador, sin ninguna librería ni servicio externo). Si el
+     navegador no soporta síntesis de voz, el botón simplemente no hace
+     nada perceptible — nunca rompe el chat. ── */
+  let vozActiva = false;
+  let vozSeleccionada = null; // voz masculina en español ya resuelta (o null si no se encontró ninguna)
+
+  function vozDisponible() {
+    return typeof window !== 'undefined' && 'speechSynthesis' in window;
+  }
+
+  /* Nombres comunes de voces masculinas/femeninas que exponen los
+     navegadores/SO más usados (Google, Microsoft/Edge, Apple) para
+     español. No hay forma estándar de pedir "voz de hombre" en la Web
+     Speech API — cada motor decide qué voces instala — así que se
+     reconoce por nombre. Si ninguna coincide, cae a la primera voz en
+     español que NO tenga nombre reconociblemente femenino; si tampoco
+     hay, usa la voz por defecto del navegador (nunca deja de hablar
+     por esto). */
+  const NOMBRES_VOZ_MASCULINA = /jorge|pablo|diego|carlos|miguel|enrique|juan|raul|raúl|male|hombre|var[oó]n/i;
+  const NOMBRES_VOZ_FEMENINA  = /m[oó]nica|helena|paulina|female|mujer|laura|mar[ií]a|sabina|elvira|conchita|luc[ií]a|paloma/i;
+
+  function elegirVozMasculina(voces) {
+    if (!Array.isArray(voces) || voces.length === 0) return null;
+    const esVoces = voces.filter(v => /^es(-|_|$)/i.test(v.lang));
+    const candidatas = esVoces.length > 0 ? esVoces : voces;
+
+    return (
+      candidatas.find(v => NOMBRES_VOZ_MASCULINA.test(v.name)) ||
+      candidatas.find(v => !NOMBRES_VOZ_FEMENINA.test(v.name)) ||
+      candidatas[0]
+    );
+  }
+
+  /* Las voces se cargan de forma asíncrona en varios navegadores
+     (Chrome en particular devuelve [] la primera vez) — se intenta de
+     inmediato y también se re-intenta cuando el navegador avisa que ya
+     están listas. Sin dependencias externas, 100% Web Speech API. */
+  function cargarVozMasculina() {
+    if (!vozDisponible()) return;
+    const voces = window.speechSynthesis.getVoices();
+    if (voces && voces.length > 0) vozSeleccionada = elegirVozMasculina(voces);
+  }
+
+  function hablar(texto) {
+    if (!vozActiva || !vozDisponible() || !texto) return;
+    try {
+      window.speechSynthesis.cancel(); // no encimar lecturas si llegan mensajes seguidos
+      const utter = new SpeechSynthesisUtterance(texto);
+      utter.lang = 'es-ES';
+      utter.rate = 1;
+      // Tono más grave como respaldo SIEMPRE (además de elegir una voz
+      // masculina cuando existe): así suena más varonil incluso en
+      // navegadores que solo traen una voz en español.
+      utter.pitch = 0.8;
+      if (vozSeleccionada) utter.voice = vozSeleccionada;
+      window.speechSynthesis.speak(utter);
+    } catch (e) {
+      console.error('[SebastianAI] No se pudo leer el mensaje en voz alta:', e);
+    }
+  }
+
+  function toggleVoz() {
+    if (!vozDisponible()) return; // botón inerte si el navegador no soporta síntesis de voz
+    vozActiva = !vozActiva;
+    const btn = document.getElementById('sebIA-voice');
+    if (btn) {
+      btn.classList.toggle('sebIA-voice-on', vozActiva);
+      btn.setAttribute('aria-pressed', String(vozActiva));
+      btn.title = vozActiva ? 'Silenciar respuestas' : 'Leer respuestas en voz alta';
+    }
+    if (!vozActiva && vozDisponible()) window.speechSynthesis.cancel();
+  }
+
+  function scrollAbajo() {
+    bodyEl.scrollTop = bodyEl.scrollHeight;
+  }
+
+  function agregarMensaje(texto, tipo) {
+    const msg = document.createElement('div');
+    msg.className = `sebIA-msg ${tipo}`;
+    msg.textContent = texto;
+    bodyEl.appendChild(msg);
+    scrollAbajo();
+    if (tipo === 'bot') {
+      if (!opened) incrementarNoLeidos();
+      hablar(texto);
+    }
+    return msg;
+  }
+
+  function agregarListaComandos(lista = ALL_COMMANDS) {
+    const wrap = document.createElement('div');
+    wrap.className = 'sebIA-msg bot';
+    const list = document.createElement('div');
+    list.className = 'sebIA-cmd-list';
+    lista.forEach(cmd => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sebIA-cmd-chip';
+      chip.textContent = cmd;
+      chip.addEventListener('click', () => enviarTexto(cmd));
+      list.appendChild(chip);
+    });
+    wrap.appendChild(list);
+    bodyEl.appendChild(wrap);
+    scrollAbajo();
+  }
+
+  function mostrarTyping() {
+    const t = document.createElement('div');
+    t.className = 'sebIA-typing';
+    t.id = 'sebIA-typing-indicator';
+    t.innerHTML = '<span></span><span></span><span></span>';
+    bodyEl.appendChild(t);
+    scrollAbajo();
+    return t;
+  }
+
+  function quitarTyping(el) {
+    el?.remove();
+  }
+
+  /* Simula "escribiendo…" antes de mostrar la respuesta — puramente
+     estético, no afecta el rendimiento del resto del dashboard (solo
+     un setTimeout local a este módulo). */
+  function responderConDelay(texto, delayMs, callback) {
+    const typingEl = mostrarTyping();
+    setTimeout(() => {
+      quitarTyping(typingEl);
+      if (callback) callback();
+      else agregarMensaje(texto, 'bot');
+    }, delayMs);
+  }
+
+  function enviarTexto(texto) {
+    const limpio = (texto || '').trim();
+    if (limpio === '') return;
+
+    agregarMensaje(limpio, 'user');
+    inputEl.value = '';
+
+    const resultado = procesarComando(limpio);
+    responderConDelay(null, 500 + Math.random() * 400, () => {
+      agregarMensaje(resultado.text, 'bot');
+      if (resultado.showCommandList) {
+        agregarListaComandos(Array.isArray(resultado.showCommandList) ? resultado.showCommandList : ALL_COMMANDS);
+      }
+      if (resultado.kpiIds) {
+        const recomendaciones = obtenerRecomendaciones(resultado.kpiIds);
+        if (recomendaciones.length > 0) agregarOpcionesSugeridas(recomendaciones);
+      }
+    });
+  }
+
+  function onEnviar() {
+    enviarTexto(inputEl.value);
+  }
+
+  /* Construye la llave real de sessionStorage añadiendo el usuario
+     ACTUAL como sufijo a una llave "base" (WELCOME_FLAG_BASE,
+     MENU_INFORMED_BASE, etc.).
+
+     POR QUÉ ES NECESARIO: tanto "Cambiar Sesión" (SwitchSessionEngine.js)
+     como el login/logout normal (SessionEngine en app.js) reemplazan
+     al usuario activo y hacen un window.location.reload() — pero un
+     reload NO vacía sessionStorage (solo se vacía al cerrar la
+     pestaña). Si estas llaves fueran globales (sin el usuario), el
+     flag de "ya se dio la bienvenida" quedaba en '1' de la sesión
+     anterior y el nuevo usuario nunca recibía su bienvenida
+     personalizada — el cambio de sesión no se "reconocía" como tal.
+     Al incluir el usuario en la llave, cada usuario tiene su propio
+     estado dentro de la misma pestaña, y un cambio de usuario
+     siempre se comporta como una sesión nueva para Sebastián. */
+  function _claveConSesion(base) {
+    const usuario = (typeof Reader !== 'undefined' && Reader.sesionActiva) ? Reader.sesionActiva() : null;
+    const sufijo = usuario ? String(usuario).trim().toUpperCase() : 'ANONIMO';
+    return `${base}::${sufijo}`;
+  }
+
+  function yaSeDioBienvenida() {
+    try {
+      return sessionStorage.getItem(_claveConSesion(WELCOME_FLAG_BASE)) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function marcarBienvenidaDada() {
+    try {
+      sessionStorage.setItem(_claveConSesion(WELCOME_FLAG_BASE), '1');
+    } catch (e) { /* sessionStorage no disponible — no es crítico */ }
+  }
+
+  /* Flujo de bienvenida: un único mensaje de presentación (IGUAL para
+     todos los usuarios — sin saludo personalizado por nombre) seguido
+     inmediatamente por TODOS los comandos disponibles, y luego el
+     recordatorio de "escribe AYUDA". Solo una vez por sesión de
+     pestaña/usuario (ver _claveConSesion). */
+  function iniciarBienvenida() {
+    if (yaSeDioBienvenida()) return;
+    marcarBienvenidaDada();
+
+    responderConDelay(null, 500, () => {
+      agregarMensaje(
+        'SOY SEBASTIAN, TU ASISTENTE DE IA PERSONALIZADO, AQUI TE PROPORCIONO UNA SERIE DE COMANDO PARA QUE ME PIDAS LO QUE NECESITAS!',
+        'bot'
+      );
+      agregarListaComandos(ALL_COMMANDS);
+
+      responderConDelay(null, 700, () => {
+        agregarMensaje('SI NECESITAS VER LOS COMANDOS NUEVAMENTE ESCRIBE AYUDA', 'bot');
+      });
+    });
+  }
+
+  let unreadCount = 0;
+
+  function actualizarBadge() {
+    const badge = document.getElementById('sebIA-badge');
+    if (!badge) return;
+    badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+    badge.classList.toggle('sebIA-visible', unreadCount > 0);
+  }
+
+  function incrementarNoLeidos(cantidad = 1) {
+    unreadCount += cantidad;
+    actualizarBadge();
+  }
+
+  function limpiarNoLeidos() {
+    unreadCount = 0;
+    actualizarBadge();
+  }
+
+  function yaSeInformoMenu() {
+    try {
+      return sessionStorage.getItem(_claveConSesion(MENU_INFORMED_BASE)) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function marcarMenuInformado() {
+    try {
+      sessionStorage.setItem(_claveConSesion(MENU_INFORMED_BASE), '1');
+    } catch (e) { /* sessionStorage no disponible — no es crítico */ }
+  }
+
+  /* Se dispara cuando el usuario abre el offcanvas "Menú" del sidebar
+     (#sidebarMenu, ver index.html). Solo la primera vez por sesión:
+     si el chat ya está abierto, Sebastián explica ahí mismo qué hace
+     cada botón; si está cerrado, deja el mensaje ya escrito en el
+     historial (para cuando lo abra) — el badge numérico del botón
+     botón flotante como aviso de que tiene algo nuevo que contarle.
+     Nunca abre el panel por su cuenta — eso sería intrusivo. */
+  function onMenuAbierto() {
+    if (yaSeInformoMenu()) return;
+    marcarMenuInformado();
+
+    // Si el panel de chat todavía no existe (script cargándose fuera
+    // de orden) no hay nada que hacer — se perdería el aviso, pero no
+    // rompe nada del resto del dashboard.
+    if (!bodyEl) return;
+
+    agregarMensaje('Vi que abriste el Menú — te cuento rápido qué hace cada botón:', 'bot');
+    agregarMensaje(explicarMenu(), 'bot');
+    // El badge se actualiza solo (ver agregarMensaje) si el chat está cerrado.
+  }
+
+  /* Bootstrap mantiene un "focus trap" activo mientras el offcanvas
+     #sidebarMenu sigue abierto: cada vez que el foco entra a un
+     elemento que NO es descendiente del offcanvas, un listener interno
+     de Bootstrap ('focusin' sobre `document`) lo redirige de vuelta
+     adentro. Como nuestro botón flotante y el panel de chat viven
+     fuera del offcanvas (son hijos directos de <body>), si el usuario
+     abre el Menú y luego, SIN cerrarlo, hace clic en el chat, ese
+     focus trap le robaba el foco al input y la ventana quedaba
+     "bloqueada" (no se podía escribir ni hacer clic dentro).
+
+     ANTES esto se resolvía cerrando el Menú automáticamente al abrir
+     el chat — pero eso le quita al usuario la decisión de cuándo
+     cerrar cada cosa, así que ya NO se hace.
+
+     LA SOLUCIÓN, en su lugar: interceptamos el evento 'focusin' en
+     fase de CAPTURA (que siempre se ejecuta ANTES que los listeners
+     normales en fase de burbuja, sin importar el orden de carga de
+     los scripts). Si el foco entra a un elemento dentro de nuestro
+     propio botón/panel, detenemos la propagación inmediata del
+     evento con stopImmediatePropagation(): así el listener de
+     Bootstrap (registrado en fase de burbuja) NUNCA llega a
+     ejecutarse para ese foco puntual, y el focus trap deja nuestro
+     chat tranquilo sin necesidad de cerrar el offcanvas ni tocar
+     nada de app.js/Bootstrap. El Menú permanece abierto (o cerrado)
+     exactamente como el usuario lo dejó. */
+  function neutralizarFocusTrapDelMenu() {
+    document.addEventListener('focusin', (ev) => {
+      const dentroDelChat =
+        (panelEl && panelEl.contains(ev.target)) ||
+        ev.target?.closest?.(`#${FAB_ID}`);
+      if (!dentroDelChat) return;
+
+      const menuEl = document.getElementById('sidebarMenu');
+      if (!menuEl || !menuEl.classList.contains('show')) return; // Menú cerrado: nada que neutralizar
+
+      ev.stopImmediatePropagation();
+    }, true /* fase de captura — ver comentario arriba */);
+  }
+
+  function togglePanel() {
+    opened = !opened;
+    panelEl.classList.toggle('sebIA-open', opened);
+    if (opened) {
+      inputEl?.focus();
+      limpiarNoLeidos();
+      iniciarBienvenida();
+    }
+  }
+
+  function init() {
+    /* Aborta la inicialización si todavía no hay sesión activa (Nuevo).
+       IMPORTANTE — por qué es un `setTimeout(init, 500)` y no un `return`
+       seco: este init() se ejecuta UNA sola vez en DOMContentLoaded, es
+       decir ANTES del login (el overlay de login vive en la misma página).
+       El login normal (_confirmLogin en app.js) NO recarga la página —
+       solo oculta el overlay — así que un `return` simple dejaría a
+       Sebastián permanentemente desactivado incluso después de iniciar
+       sesión con éxito. Reintentar cada 500ms es inofensivo (no crea
+       ningún nodo ni listener mientras tanto) y, apenas
+       Reader.sesionActiva() deja de ser null, el resto de init() corre
+       UNA sola vez con total normalidad. */
+    if (!Reader.sesionActiva()) {
+      setTimeout(init, 500);
+      return;
+    }
+
+    injectStyles();
+    crearFab();
+    panelEl = crearPanel();
+    neutralizarFocusTrapDelMenu();
+
+    // Resuelve la voz masculina para lectura en voz alta. En varios
+    // navegadores (Chrome en particular) la lista de voces se carga de
+    // forma asíncrona, por eso se intenta ya mismo y también se
+    // re-intenta cuando el navegador avisa que están listas.
+    cargarVozMasculina();
+    if (vozDisponible()) {
+      window.speechSynthesis.addEventListener('voiceschanged', cargarVozMasculina);
+    }
+
+    // Consciencia del botón "Menú" del sidebar (#sidebarMenu, offcanvas
+    // de Bootstrap en index.html). Solo escucha — no interfiere con
+    // Bootstrap ni con ningún otro módulo (LazyModals, etc.).
+    document.getElementById('sidebarMenu')?.addEventListener('shown.bs.offcanvas', onMenuAbierto);
+
+    // Apenas entra al dashboard, si todavía no se dio la bienvenida en
+    // esta sesión, el botón flotante ya muestra "1" — como un mensaje
+    // de WhatsApp esperando — para que el usuario sepa que Sebastián
+    // tiene algo que decirle sin necesidad de abrir el chat primero.
+    if (!yaSeDioBienvenida()) incrementarNoLeidos();
+
+    inicializarAPIPublica();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     API PÚBLICA (window.SebastianAI)
+     ────────────────────────────────────────────────────────────
+     Todo lo demás en este archivo es privado a propósito (closure
+     de la IIFE). Esta es la ÚNICA puerta de entrada que se expone
+     hacia afuera, pensada para módulos 100% independientes como
+     KpiHelpEngine.js (ícono de ayuda "?" en las tarjetas KPI): les
+     permite abrir el chat e inyectar contenido SIN que necesiten
+     conocer ni tocar el DOM interno del panel (bodyEl, panelEl,
+     etc.), exactamente el mismo patrón de aislamiento que ya usan
+     AccessManager/TelegramEngine/LazyModals entre sí.
+     ══════════════════════════════════════════════════════════ */
+  function inicializarAPIPublica() {
+    window.SebastianAI = {
+      /**
+       * Abre (si estaba cerrado) el panel de chat y, opcionalmente,
+       * agrega un mensaje del bot con una lista de opciones sugeridas
+       * (botones) debajo — pensado para el motor de recomendaciones
+       * de KpiHelpEngine.js, pero utilizable por cualquier módulo.
+       *
+       * @param {string} mensaje - Texto que dirá Sebastián (tipo 'bot').
+       * @param {Array<{label:string, comando:string}>} [opciones] -
+       *   Sugerencias interactivas. Al hacer clic en una, su `comando`
+       *   se envía al chat como si el usuario lo hubiera escrito (reutiliza
+       *   enviarTexto(), así el motor de respuestas de Sebastián de
+       *   siempre responde igual que si fuera texto libre).
+       */
+      abrirConMensaje(mensaje, opciones) {
+        if (!opened) togglePanel(); // reutiliza la apertura normal (respeta badge, bienvenida, etc.)
+
+        if (typeof mensaje === 'string' && mensaje.trim() !== '') {
+          agregarMensaje(mensaje, 'bot');
+        }
+
+        if (Array.isArray(opciones) && opciones.length > 0) {
+          agregarOpcionesSugeridas(opciones);
+        }
+      },
+
+      /**
+       * Abre (si estaba cerrado) el panel de chat y envía `texto` EXACTAMENTE
+       * como si el usuario lo hubiera escrito y presionado Enter: reutiliza
+       * enviarTexto() por completo, así la respuesta pasa por el mismo
+       * procesarComando() de siempre (mismos datos ya filtrados por
+       * AccessManager/vista restringida del usuario — ver Reader.text()) y,
+       * si el comando trae kpiIds, dispara el motor de recomendaciones
+       * (obtenerRecomendaciones) exactamente igual que si el usuario lo
+       * hubiera pedido por texto libre.
+       *
+       * Pensado para botones externos que quieren "hacerle una pregunta"
+       * a Sebastián sin duplicar ninguna lógica de respuesta (p. ej. el
+       * botón "Análisis con IA" de la barra de filtros).
+       *
+       * @param {string} texto - Frase a enviar (debe calzar con alguna
+       *   regex de COMMANDS para obtener una respuesta útil).
+       */
+      preguntar(texto) {
+        if (!opened) togglePanel();
+        enviarTexto(texto);
+      },
+    };
+  }
+
+  /* Renderiza una fila de botones-sugerencia dentro del chat, con el
+     mismo lenguaje visual que agregarListaComandos() (misma clase
+     .sebIA-cmd-chip) para no introducir un estilo nuevo. Cada botón,
+     al pulsarse, envía su `comando` como si el usuario lo hubiera
+     tecleado — así el motor de recomendaciones externo (KpiHelpEngine)
+     no necesita conocer la lógica interna de respuestas de Sebastián,
+     solo qué texto "preguntar". */
+  function agregarOpcionesSugeridas(opciones) {
+    const wrap = document.createElement('div');
+    wrap.className = 'sebIA-msg bot';
+    const list = document.createElement('div');
+    list.className = 'sebIA-cmd-list';
+    opciones.forEach(({ label, comando }) => {
+      if (!label || !comando) return;
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sebIA-cmd-chip';
+      chip.textContent = label;
+      chip.addEventListener('click', () => enviarTexto(comando));
+      list.appendChild(chip);
+    });
+    wrap.appendChild(list);
+    bodyEl.appendChild(wrap);
+    scrollAbajo();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+
+/* ---- KpiHelpEngine.js ---- */
+/* ════════════════════════════════════════════════════════════
+   KpiHelpEngine.js
+   ────────────────────────────────────────────────────────────
+   Módulo 100% INDEPENDIENTE para los íconos "?" que invocan a
+   Sebastián IA:
+     • En la esquina inferior derecha de cada tarjeta KPI
+       (.kpi-help-btn, data-kpi-id — ver index.html/style.css).
+     • Junto a la barra de búsqueda de cada sección de tabla:
+       Personas, Excluidos, Nuevos y Monitor de Ausencias
+       (.table-help-btn, data-section-id — ver index.html/style.css).
+
+   Al hacer clic:
+     1. Lee el contexto del botón desde sus atributos data-*
+        (data-kpi-id + data-user-view, o data-section-id).
+     2. Arma un mensaje: para KPIs, una explicación (qué es, para
+        qué sirve); para secciones de tabla, un ANÁLISIS con los
+        números reales ya renderizados en el DOM (conteos de
+        TableEngine/AbsenceEngine).
+     3. Genera un array de "Nuevas Opciones" (chips) — por
+        decisionEngine para KPIs, o una lista fija por sección.
+     4. Invoca la API pública de Sebastián IA (window.SebastianAI,
+        expuesta en SebastianAI.js) para abrir el chat con ese
+        mensaje + esas opciones.
+
+   Qué NO hace (a propósito):
+   - No modifica SebastianAI.js, AccessManager.js, SecurityConfig.js,
+     USUARIOS.JS ni ninguna lógica de negocio de app.js. Solo LEE el
+     usuario en sesión (misma llave de sessionStorage que ya usa el
+     resto del proyecto) y los contadores ya pintados en el DOM para
+     personalizar/armar el mensaje.
+   - No calcula KPIs reales: los "datos" que usa el motor de
+     recomendaciones de las tarjetas KPI son simulados (ver
+     SIMULATED_DATA_STATE más abajo) — están marcados con comentarios
+     "🔌 CONECTAR AQUÍ" en los puntos exactos donde deberías
+     sustituirlos por tus valores reales. Las secciones de tabla, en
+     cambio, SÍ leen datos reales (los contadores del DOM), porque
+     esos números ya existen — no hace falta simularlos.
+   - No abre el modal de personas ni ninguna tabla — eso sigue siendo
+     EXCLUSIVO de hacer clic directamente en la tarjeta/sección.
+
+   Cómo usarlo:
+   Solo agrega este script en index.html, DESPUÉS de SebastianAI.js
+   (necesita `window.SebastianAI` ya expuesto):
+       <script src="KpiHelpEngine.js"></script>
+   ════════════════════════════════════════════════════════════ */
+
+(function () {
+  'use strict';
+
+  /* Debe coincidir con SessionEngine.STORAGE_KEY (app.js) — se lee
+     directamente de sessionStorage (no de SessionEngine) para que
+     este módulo siga siendo 100% independiente, igual que hace
+     SwitchSessionEngine.js. */
+  const SESSION_STORAGE_KEY = 'ccrm_dashboard_user';
+
+  function usuarioActual() {
+    try {
+      return sessionStorage.getItem(SESSION_STORAGE_KEY) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     1) DICCIONARIO DE EXPLICACIONES POR KPI
+     ────────────────────────────────────────────────────────────
+     Clave = data-kpi-id de la tarjeta (ver index.html). Cada
+     entrada describe QUÉ ES el KPI y PARA QUÉ SIRVE — esto es lo
+     que arma el primer mensaje que Sebastián le muestra al usuario.
+     ══════════════════════════════════════════════════════════ */
+  const KPI_EXPLICACIONES = {
+    'total':           { titulo: 'Total Registrados',          que: 'la cantidad total de personas registradas en el reporte cargado.', paraQue: 'darte una foto general del tamaño de tu grupo/iglesia antes de mirar el detalle.' },
+    'celula-si':       { titulo: 'Asistencia a Célula',        que: 'cuántas personas SÍ asistieron a célula en el periodo del reporte.', paraQue: 'medir el compromiso con la reunión de célula, semana a semana.' },
+    'celula-no':       { titulo: 'Inasistencia a Célula',      que: 'cuántas personas NO asistieron a célula en el periodo del reporte.', paraQue: 'detectar a tiempo a quienes se están alejando de la célula.' },
+    'servicio-si':     { titulo: 'Asistencia a Servicio',      que: 'cuántas personas SÍ asistieron al servicio/culto en el periodo.', paraQue: 'medir el compromiso con el servicio general, aparte de la célula.' },
+    'servicio-no':     { titulo: 'Inasistencia a Servicio',    que: 'cuántas personas NO asistieron al servicio/culto en el periodo.', paraQue: 'identificar a quienes podrían necesitar seguimiento pastoral.' },
+    'ambos-si':        { titulo: 'Asistió a Ambos',            que: 'cuántas personas asistieron TANTO a célula COMO a servicio.', paraQue: 'reconocer al núcleo más comprometido del grupo.' },
+    'ambos-no':        { titulo: 'Ausente en Ambos',           que: 'cuántas personas NO asistieron ni a célula ni a servicio.', paraQue: 'priorizar el seguimiento — son quienes más riesgo de alejarse tienen.' },
+    'nuevos-celula':   { titulo: 'Nuevos en Célula',           que: 'cuántas personas asistieron a célula por primera vez en este periodo.', paraQue: 'medir qué tan bien está creciendo tu célula con gente nueva.' },
+    'nuevos-servicio': { titulo: 'Nuevos en Servicio',         que: 'cuántas personas asistieron al servicio por primera vez en este periodo.', paraQue: 'medir el alcance de nuevas visitas al servicio general.' },
+    'pct-general':     { titulo: '% Asistencia General',       que: 'el porcentaje de asistencia general (célula + servicio) sobre el total de registrados.', paraQue: 'tener un solo número que resuma la salud general del grupo.' },
+    'pct-celula':      { titulo: '% Asistencia Célula',        que: 'el porcentaje de asistencia SOLO a célula sobre el total de registrados.', paraQue: 'comparar qué tan fuerte está la célula frente al servicio general.' },
+    'pct-servicio':    { titulo: '% Asistencia Servicio',      que: 'el porcentaje de asistencia SOLO a servicio sobre el total de registrados.', paraQue: 'comparar qué tan fuerte está el servicio general frente a la célula.' },
+  };
+
+  /* ══════════════════════════════════════════════════════════
+     1-B) SECCIONES DE TABLA (Personas / Excluidos / Nuevos /
+     Monitor de Ausencias) — ver .table-help-btn en index.html,
+     dentro de cada .table-search-bar.
+
+     A diferencia de los KPI (que solo describen QUÉ ES el
+     indicador), aquí cada `analizar(usuario)` LEE en vivo los
+     contadores que TableEngine/AbsenceEngine ya pintaron en el DOM
+     (los mismos #countXxx / #ausXxxCount que usa SebastianAI.js) y
+     arma una respuesta con el dato real — nunca abre la tabla ni el
+     modal de personas, eso sigue siendo exclusivo de hacer clic en
+     la sección misma. Como solo lee texto ya renderizado (que a su
+     vez ya pasó por AccessManager), respeta el mismo RBAC que el
+     resto del proyecto sin tener que reimplementarlo aquí.
+     ══════════════════════════════════════════════════════════ */
+  function _texto(id, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const t = (el.textContent || '').trim();
+    return t !== '' ? t : fallback;
+  }
+
+  const SECCIONES_TABLA = {
+    personas: {
+      titulo: 'Personas',
+      analizar: () => `esta sección lista a las personas activas que cumplen tus filtros actuales: ${_texto('countPersonas', 'sin datos todavía')}. Es la fuente completa detrás de casi todos los KPIs del dashboard.`,
+    },
+    excluidos: {
+      titulo: 'Excluidos',
+      analizar: () => `esta sección lista a las personas marcadas como excluidas del conteo regular: ${_texto('countExcluidos', 'sin datos todavía')}. Útil para revisar quiénes están fuera del reporte activo y por qué.`,
+    },
+    nuevos: {
+      titulo: 'Nuevos',
+      analizar: () => `esta sección lista a las personas nuevas del periodo: ${_texto('countNuevos', 'sin datos todavía')}. El desglose entre célula y servicio ya viene incluido en ese conteo.`,
+    },
+    ausencias: {
+      titulo: 'Monitor de Ausencias',
+      analizar: () => {
+        const normal = _texto('ausNormalCount', '0');
+        const vigilar = _texto('ausWatchCount', '0');
+        const alerta = _texto('ausWarnCount', '0');
+        const critico = _texto('ausCritCount', '0');
+        return `este monitor clasifica a cada persona por su racha de inasistencia: ${_texto('countAusencias', 'sin datos todavía')} — Normal: ${normal} · A vigilar: ${vigilar} · Alerta: ${alerta} · Crítico: ${critico}. Prioriza revisar primero a quienes están en Crítico.`;
+      },
+    },
+  };
+
+  const OPCIONES_FIJAS_POR_SECCION = {
+    personas:  [{ label: '📊 Ver resumen completo', comando: 'RESUMEN' }],
+    excluidos: [{ label: '📋 Ver histórico', comando: 'HISTORICO' }],
+    nuevos:    [
+      { label: '🙌 Detalle nuevos en Célula', comando: 'DETALLE NUEVOS CELULA' },
+      { label: '🙌 Detalle nuevos en Servicio', comando: 'DETALLE NUEVOS SERVICIO' },
+    ],
+    ausencias: [
+      { label: '⚠️ Ver en riesgo (Ambos NO)', comando: 'DETALLE AMBOS NO' },
+      { label: '🚨 Plan de seguimiento', comando: 'PLAN DE SEGUIMIENTO' },
+    ],
+  };
+
+  function armarMensajeSeccion(sectionId, usuario) {
+    const info = SECCIONES_TABLA[sectionId];
+    const saludo = usuario ? `${usuario}, ` : '';
+
+    if (!info) {
+      return `${saludo}esa sección todavía no tiene un análisis configurado. Avísale al equipo técnico para agregarla.`;
+    }
+
+    return `${saludo}${info.analizar()}`;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     2) ESTADO DE DATOS (SIMULADO)
+     ────────────────────────────────────────────────────────────
+     🔌 CONECTAR AQUÍ: en producción, reemplaza esta función por tu
+     lógica real — por ejemplo, leer el texto ya calculado en el DOM
+     (los mismos <div id="kpiXxx"> que pinta KPIEngine en app.js) o,
+     mejor aún, consultar directamente tu DataStore/KPIEngine si
+     expone esos números en memoria. La firma (qué devuelve) debe
+     mantenerse igual para que el motor de recomendaciones de abajo
+     siga funcionando sin cambios.
+     ══════════════════════════════════════════════════════════ */
+  function leerEstadoSimuladoDelKPI(kpiId) {
+    // 🔌 CONECTAR AQUÍ (opción real, ejemplo):
+    //   const el = document.getElementById(idMap[kpiId]);
+    //   const valor = el ? parseInt(el.textContent, 10) : null;
+    //
+    // Por ahora, simulamos una tendencia aleatoria estable por
+    // sesión de página (no cambia en cada clic) solo para poder
+    // mostrar cómo el motor de recomendaciones reacciona distinto
+    // según el estado de los datos:
+    if (!leerEstadoSimuladoDelKPI._cache) leerEstadoSimuladoDelKPI._cache = {};
+    if (!(kpiId in leerEstadoSimuladoDelKPI._cache)) {
+      const tendencias = ['subiendo', 'bajando', 'estable'];
+      leerEstadoSimuladoDelKPI._cache[kpiId] = tendencias[Math.floor(Math.random() * tendencias.length)];
+    }
+    return { tendencia: leerEstadoSimuladoDelKPI._cache[kpiId] };
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     3) MOTOR DE RECOMENDACIONES (decisionEngine)
+     ────────────────────────────────────────────────────────────
+     Devuelve un array de "Nuevas Opciones" — cada una es un botón
+     que se inyecta en el chat de Sebastián. `label` es lo que ve el
+     usuario; `comando` es el texto que se envía al chat al hacer
+     clic (Sebastián lo procesa como si el usuario lo hubiera
+     escrito — ver window.SebastianAI.abrirConMensaje en
+     SebastianAI.js).
+
+     Combina dos cosas:
+       a) Opciones FIJAS por kpi-id (siempre aplican a ese KPI).
+       b) Opciones CONDICIONALES según el estado simulado de los
+          datos (ej: si la tendencia es "bajando", sugiere opciones
+          de alerta/seguimiento en vez de solo informativas).
+     ══════════════════════════════════════════════════════════ */
+  const OPCIONES_FIJAS_POR_KPI = {
+    'total':           [{ label: '📈 Ver tendencia', comando: 'TENDENCIA' }],
+    'celula-si':       [{ label: '📊 Comparar con servicio', comando: 'COMPARAR' }],
+    'celula-no':       [{ label: '📉 Ver quiénes faltaron', comando: 'DETALLE CELULA' }],
+    'servicio-si':     [{ label: '📊 Comparar con célula', comando: 'COMPARAR' }],
+    'servicio-no':     [{ label: '📉 Ver quiénes faltaron', comando: 'DETALLE SERVICIO' }],
+    'ambos-si':        [{ label: '⭐ Ver core comprometido', comando: 'DETALLE AMBOS SI' }],
+    'ambos-no':        [{ label: '⚠️ Ver en riesgo', comando: 'DETALLE AMBOS NO' }],
+    'nuevos-celula':   [{ label: '🙌 Ver nuevos de célula', comando: 'DETALLE NUEVOS CELULA' }],
+    'nuevos-servicio': [{ label: '🙌 Ver nuevos de servicio', comando: 'DETALLE NUEVOS SERVICIO' }],
+    'pct-general':     [{ label: '📈 Ver tendencia general', comando: 'TENDENCIA' }],
+    'pct-celula':      [{ label: '📈 Ver tendencia célula', comando: 'TENDENCIA' }],
+    'pct-servicio':    [{ label: '📈 Ver tendencia servicio', comando: 'TENDENCIA' }],
+  };
+
+  /**
+   * Motor de decisiones: combina reglas fijas + condicionales según
+   * `estado` (ver leerEstadoSimuladoDelKPI) para el kpi-id dado.
+   *
+   * @param {string} kpiId
+   * @param {{tendencia: 'subiendo'|'bajando'|'estable'}} estado
+   * @returns {Array<{label:string, comando:string}>}
+   */
+  function decisionEngine(kpiId, estado) {
+    const opciones = [...(OPCIONES_FIJAS_POR_KPI[kpiId] || [])];
+
+    // Regla condicional genérica: KPIs de tipo "inasistencia"/"ausente"
+    // que además vienen "subiendo" → priorizar acción de seguimiento.
+    const esKpiDeAlerta = kpiId.includes('no') || kpiId === 'ambos-no';
+
+    if (estado.tendencia === 'subiendo' && esKpiDeAlerta) {
+      opciones.unshift({ label: '🚨 Sugerir plan de seguimiento', comando: 'PLAN DE SEGUIMIENTO' });
+    } else if (estado.tendencia === 'bajando' && !esKpiDeAlerta) {
+      opciones.unshift({ label: '🔎 ¿Por qué está bajando?', comando: 'ANALIZAR CAIDA' });
+    } else if (estado.tendencia === 'estable') {
+      opciones.push({ label: '✅ Todo estable, ¿algo más?', comando: 'AYUDA' });
+    }
+
+    // 🔌 CONECTAR AQUÍ: si tu proyecto ya tiene comandos reales de
+    // Sebastián para "TENDENCIA", "COMPARAR", etc. (ver ALL_COMMANDS
+    // dentro de SebastianAI.js), estos `comando` deben coincidir con
+    // esos textos exactos para que el bot los reconozca al enviarse.
+
+    // Opción permanente (Nuevo): siempre disponible al final de la
+    // lista, sin importar el estado de la tendencia — dispara el
+    // "Reporte Ejecutivo" completo vía Sebastián IA (ver
+    // FRASE_ANALISIS_IA en SebastianAI.js, que reconoce este mismo
+    // texto de comando y responde con analizarDashboardCompleto()).
+    opciones.push({ label: '📝 Generar Reporte Ejecutivo', comando: 'REPORTE EJECUTIVO' });
+
+    return opciones;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     4) ARMADO DEL MENSAJE + INVOCACIÓN A SEBASTIÁN
+     ══════════════════════════════════════════════════════════ */
+  function armarMensajeExplicativo(kpiId, userView, usuario) {
+    const info = KPI_EXPLICACIONES[kpiId];
+    const saludo = usuario ? `${usuario}, ` : '';
+
+    if (!info) {
+      // Fail-safe: kpi-id desconocido (p. ej. si el HTML cambia y
+      // este archivo no se actualizó) — igual respondemos algo útil
+      // en vez de romper el flujo del chat.
+      return `${saludo}este indicador (vista: ${userView || 'general'}) todavía no tiene una explicación configurada. Avísale al equipo técnico para agregarla.`;
+    }
+
+    return `${saludo}este KPI es "${info.titulo}": muestra ${info.que} Sirve para ${info.paraQue}`;
+  }
+
+  function onClickAyuda(ev) {
+    const btnKpi = ev.target.closest('.kpi-help-btn');
+    const btnSeccion = ev.target.closest('.table-help-btn');
+    const btn = btnKpi || btnSeccion;
+    if (!btn) return;
+
+    // Evita que el clic burbujee hacia comportamientos del propio
+    // .kpi-card (abrir el modal de personas) — ES EL MOTIVO por el
+    // que este listener corre en fase de CAPTURA (ver init() más
+    // abajo): el listener que abre ese modal está pegado directamente
+    // sobre cada .kpi-card, más cerca del botón "?" en el árbol del
+    // DOM que `document`, así que en fase de burbuja normal siempre
+    // se dispara primero. En captura, `document` se visita ANTES de
+    // que el clic descienda hasta la tarjeta, así que interceptamos
+    // aquí y el modal nunca llega a abrirse.
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    if (typeof window.SebastianAI === 'undefined' || typeof window.SebastianAI.abrirConMensaje !== 'function') {
+      console.error('[KpiHelpEngine] window.SebastianAI no está disponible — ¿se cargó SebastianAI.js antes que este script?');
+      return;
+    }
+
+    const usuario = usuarioActual();
+
+    if (btnSeccion) {
+      // ── Botón de una SECCIÓN DE TABLA (Personas/Excluidos/Nuevos/
+      //    Monitor de Ausencias) — ver .table-help-btn en index.html.
+      const sectionId = btnSeccion.dataset.sectionId;
+      if (!sectionId) {
+        console.error('[KpiHelpEngine] Botón de ayuda de tabla sin data-section-id — no se puede continuar.');
+        return;
+      }
+      const mensaje = armarMensajeSeccion(sectionId, usuario);
+      const opciones = OPCIONES_FIJAS_POR_SECCION[sectionId] || [];
+      window.SebastianAI.abrirConMensaje(mensaje, opciones);
+      return;
+    }
+
+    // ── Botón de una tarjeta KPI (comportamiento original, sin cambios) ──
+    const kpiId = btnKpi.dataset.kpiId;
+    const userView = btnKpi.dataset.userView;
+
+    if (!kpiId) {
+      console.error('[KpiHelpEngine] Botón de ayuda sin data-kpi-id — no se puede continuar.');
+      return;
+    }
+
+    const estado = leerEstadoSimuladoDelKPI(kpiId); // 🔌 CONECTAR AQUÍ (ver función arriba)
+    const mensaje = armarMensajeExplicativo(kpiId, userView, usuario);
+    const opciones = decisionEngine(kpiId, estado);
+
+    window.SebastianAI.abrirConMensaje(mensaje, opciones);
+  }
+
+  function init() {
+    // Fase de CAPTURA (true) — MISMA técnica que ya usa LazyModals.js en
+    // este proyecto. Es imprescindible aquí: el listener que abre el
+    // modal de personas está pegado directamente sobre cada .kpi-card
+    // (ver UIController.bindKPICardClicks en app.js), no sobre
+    // `document`. En fase de burbuja (el comportamiento por defecto),
+    // ese listener de la tarjeta SIEMPRE se dispara primero porque está
+    // más cerca del botón "?" en el árbol del DOM que `document` — para
+    // cuando nuestro preventDefault()/stopPropagation() de más abajo se
+    // ejecutaba, el modal de personas ya se había abierto. Escuchando en
+    // fase de captura, `document` se visita ANTES de que el clic
+    // descienda hasta la tarjeta, así que interceptamos y detenemos el
+    // evento ahí mismo — el clic nunca llega a bindKPICardClicks() y el
+    // modal de personas no se abre. El resto de la tarjeta (fuera del
+    // botón "?") sigue abriendo la lista de personas exactamente igual
+    // que antes, porque onClickAyuda() solo actúa cuando el clic
+    // realmente vino de `.kpi-help-btn` o `.table-help-btn` (ver
+    // closest() más arriba).
+    document.addEventListener('click', onClickAyuda, true);
+
+    inicializarAPIPublica();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     API PÚBLICA (window.KpiHelpEngine)
+     ────────────────────────────────────────────────────────────
+     Mismo patrón de aislamiento que window.SebastianAI: la ÚNICA
+     puerta de entrada hacia afuera de esta IIFE. Permite que
+     SebastianAI.js reutilice el MISMO decisionEngine (reglas fijas +
+     condicionales por kpi-id) desde CUALQUIER respuesta del chat —
+     no solo desde el clic en el botón "?" — para que el motor de
+     recomendaciones esté activo también cuando el usuario pregunta
+     por texto libre ("¿cómo van las células?", etc.). No se duplica
+     lógica: es la misma función decisionEngine() de siempre. */
+  function inicializarAPIPublica() {
+    window.KpiHelpEngine = {
+      /**
+       * @param {string} kpiId - Una de las claves de KPI_EXPLICACIONES
+       *   ('total', 'celula-si', 'celula-no', 'servicio-si', ...).
+       * @returns {Array<{label:string, comando:string}>} Recomendaciones
+       *   generadas por decisionEngine para ese KPI en su estado actual.
+       *   Devuelve [] si el kpiId no existe — nunca lanza error.
+       */
+      getRecomendaciones(kpiId) {
+        if (!kpiId || !KPI_EXPLICACIONES[kpiId]) return [];
+        const estado = leerEstadoSimuladoDelKPI(kpiId);
+        return decisionEngine(kpiId, estado);
+      },
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+
+
+/* ---- ReporteEjecutivoEngine.js ---- */
+/* ════════════════════════════════════════════════════════════
+   ReporteEjecutivoEngine.js
+   ────────────────────────────────────────────────────────────
+   Módulo 100% INDEPENDIENTE. El botón "Reporte Ejecutivo"
+   (#btnReporteEjecutivo, menú lateral) abre una ventana superpuesta
+   propia — un "Reporte Ejecutivo Detallado" — construida 100% por
+   JavaScript (sin tocar index.html). CERO dependencia de
+   SebastianAI en todo el flujo, y CERO navegación/comandos: el
+   Plan de Seguimiento es contenido de informe (texto de lectura),
+   no botones que saltan a otra parte del dashboard.
+
+   RBAC / SEGURIDAD:
+   Este módulo NUNCA toca DataStore ni ExcelParser directamente, y
+   NUNCA aplica sus propias reglas de permisos. Todo lo que lee — los
+   textos de KPIs en el DOM, UIController._lastFilteredRecords y
+   AbsenceEngine._currentData — es siempre el MISMO dataset que ya
+   pasó por AccessManager.applyFilter() para pintar el resto del
+   dashboard. Si el usuario no tiene permiso para ver un dato, ese
+   dato no está en esas fuentes, así que este motor tampoco puede
+   mostrarlo.
+
+   ESTILO:
+   Sus estilos viven en style.css (bloque "ReporteEjecutivoEngine"),
+   consumen EXCLUSIVAMENTE las variables CSS nativas del proyecto
+   (--bg-card, --gold, --danger, etc.), así que respetan el tema
+   oscuro/claro automáticamente.
+
+   ANÁLISIS Y PLAN DE SEGUIMIENTO:
+   Ya NO usa window.KpiHelpEngine.getRecomendaciones() — esa función
+   depende de leerEstadoSimuladoDelKPI() (tendencia ALEATORIA, ver
+   "🔌 CONECTAR AQUÍ" en ese archivo), por eso antes solo devolvía
+   frases genéricas. En su lugar, este módulo analiza directamente
+   los registros reales ya filtrados (nombres, grupo, teléfono,
+   días sin asistir) para armar un informe con: personas concretas
+   a las que hacerle seguimiento (con enlace de WhatsApp si hay
+   teléfono), un diagnóstico de causa probable (¿concentrada en un
+   grupo o repartida? ¿solo célula, solo servicio, o ambos?) y un
+   plan de acción sugerido. Todo texto de informe — nada de botones
+   que ejecuten comandos ni que naveguen a otra parte del dashboard.
+   ════════════════════════════════════════════════════════════ */
+
+(function () {
+  'use strict';
+
+  const STYLE_ID    = 'reporteEjecutivoStyles';
+  const OVERLAY_ID  = 'reporteEjecutivoOverlay';
+  const BTN_ID      = 'btnReporteEjecutivo';
+
+  /* ── Umbrales de estado (mismos criterios en todo el reporte) ──
+     % de INASISTENCIA (NO) sobre el total de esa categoría:
+       < 15%  → ✅ Saludable
+       15–30% → ⚠️ Atención
+       > 30%  → 🔴 Crítico                                          */
+  const UMBRAL_ALERTA   = 15;
+  const UMBRAL_CRITICO  = 30;
+
+  /* ══════════════════════════════════════════════════════════
+     LECTOR DE DOM (RBAC vía DOM) — mismo patrón que Reader en
+     SebastianAI.js: nunca lanza error, siempre hay un fallback,
+     y detecta el estado "recalculando" para no mostrar basura.
+     ══════════════════════════════════════════════════════════ */
+  const ReaderRE = {
+    /** Texto crudo del nodo, o `fallback` si no existe / está vacío. */
+    text(id, fallback = '—') {
+      const el = document.getElementById(id);
+      if (!el) return fallback;
+      const t = (el.textContent || '').trim();
+      return t !== '' ? t : fallback;
+    },
+
+    /** true si el nodo está en medio del overlay "Recalculando…"
+        (ver UIController._setKpisRecalculando en app.js). */
+    isRecalculando(id) {
+      const el = document.getElementById(id);
+      return !!el && el.classList.contains('kpi-recalculando');
+    },
+
+    /** Extrae un número (entero o decimal) del texto de un nodo,
+        tolerando '%', espacios, comas de miles, etc. Devuelve `null`
+        si no se pudo interpretar como número (nunca NaN silencioso). */
+    numero(id) {
+      const raw = this.text(id, '');
+      if (raw === '' || raw === '—') return null;
+      const limpio = raw.replace(/\./g, '').replace(',', '.').match(/-?\d+(\.\d+)?/);
+      if (!limpio) return null;
+      const n = parseFloat(limpio[0]);
+      return Number.isFinite(n) ? n : null;
+    },
+  };
+
+  /** true si CUALQUIERA de los ids dados está recalculando —
+      usado para mostrar un aviso en vez de datos a medio pintar. */
+  function algunoRecalculando(ids) {
+    return ids.some(id => ReaderRE.isRecalculando(id));
+  }
+
+  /** Clasifica un % de inasistencia en 'ok' | 'alerta' | 'critico'. */
+  function clasificar(pctNo) {
+    if (pctNo === null) return 'ok';
+    if (pctNo > UMBRAL_CRITICO) return 'critico';
+    if (pctNo >= UMBRAL_ALERTA) return 'alerta';
+    return 'ok';
+  }
+
+  const ICONO_ESTADO = { ok: '✅', alerta: '⚠️', critico: '🔴' };
+  const LABEL_ESTADO = { ok: 'Saludable', alerta: 'Atención', critico: 'Crítico' };
+
+  /* ══════════════════════════════════════════════════════════
+     ESTILOS — inyectados una sola vez, 100% variables nativas.
+     ══════════════════════════════════════════════════════════ */
+  function inyectarEstilos() {
+    /* CSS ahora vive en style.css — ya no se inyecta por JS. */
+    return;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     RECOLECCIÓN DE DATOS (100% desde el DOM)
+     ══════════════════════════════════════════════════════════ */
+  function recolectarDatos() {
+    return {
+      total:        ReaderRE.text('kpiTotal'),
+      pctGeneral:   ReaderRE.text('kpiPctGeneral'),
+
+      celulaSI:     ReaderRE.text('kpiCelulasSI'),
+      celulaSIPct:  ReaderRE.text('kpiCelulasSIPct'),
+      celulaNO:     ReaderRE.text('kpiCelulasNO'),
+      celulaNOPct:  ReaderRE.numero('kpiCelulasNOPct'),
+      celulaNOPctTexto: ReaderRE.text('kpiCelulasNOPct'),
+
+      servicioSI:     ReaderRE.text('kpiServicioSI'),
+      servicioSIPct:  ReaderRE.text('kpiServicioSIPct'),
+      servicioNO:     ReaderRE.text('kpiServicioNO'),
+      servicioNOPct:  ReaderRE.numero('kpiServicioNOPct'),
+      servicioNOPctTexto: ReaderRE.text('kpiServicioNOPct'),
+
+      ambosSI:     ReaderRE.text('kpiAmbosSI'),
+      ambosSIPct:  ReaderRE.text('kpiAmbosSIPct'),
+      ambosNO:     ReaderRE.text('kpiAmbosNO'),
+      ambosNOPct:  ReaderRE.numero('kpiAmbosNOPct'),
+      ambosNOPctTexto: ReaderRE.text('kpiAmbosNOPct'),
+
+      nuevosCelula:    ReaderRE.text('kpiNuevosCelula'),
+      nuevosServicio:  ReaderRE.text('kpiNuevosServicio'),
+
+      ausNormal: ReaderRE.text('ausNormalCount', '0'),
+      ausWatch:  ReaderRE.text('ausWatchCount', '0'),
+      ausWarn:   ReaderRE.text('ausWarnCount', '0'),
+      ausCrit:   ReaderRE.text('ausCritCount', '0'),
+      ausCritNum: ReaderRE.numero('ausCritCount') || 0,
+
+      recalculando: algunoRecalculando([
+        'kpiTotal', 'kpiPctGeneral',
+        'kpiCelulasSI', 'kpiCelulasNO', 'kpiServicioSI', 'kpiServicioNO',
+        'kpiAmbosSI', 'kpiAmbosNO', 'kpiNuevosCelula', 'kpiNuevosServicio',
+      ]),
+    };
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     MOTOR DE ANÁLISIS REAL — nombres, causas y plan de acción
+     ────────────────────────────────────────────────────────────
+     A propósito, esto YA NO usa window.KpiHelpEngine.
+     getRecomendaciones(): esa función basa sus recomendaciones en
+     leerEstadoSimuladoDelKPI(), que devuelve una TENDENCIA
+     ALEATORIA (Math.random(), ver comentario "🔌 CONECTAR AQUÍ" en
+     ese archivo) — por eso el reporte solo mostraba frases
+     genéricas. Todo lo de aquí abajo se calcula sobre los
+     registros REALES ya filtrados por RBAC:
+       • UIController._lastFilteredRecords — mismo dataset que
+         alimenta las tarjetas KPI (bindKPICardClicks).
+       • AbsenceEngine._currentData — mismo dataset, ya procesado
+         y ordenado, que alimenta el Monitor de Ausencias.
+     No se inventa ni se simula nada: si el Excel no trae esos
+     datos, las listas simplemente salen vacías.
+     ══════════════════════════════════════════════════════════ */
+
+  function registrosReales() {
+    return (typeof UIController !== 'undefined' && Array.isArray(UIController._lastFilteredRecords))
+      ? UIController._lastFilteredRecords
+      : [];
+  }
+
+  function ausenciasReales() {
+    return (typeof AbsenceEngine !== 'undefined' && Array.isArray(AbsenceEngine._currentData))
+      ? AbsenceEngine._currentData
+      : [];
+  }
+
+  /* Nombres reales que requieren seguimiento YA — nivel Crítico
+     (> 4 semanas sin asistir), en el mismo orden que ya usa
+     AbsenceEngine.process() (crítico primero, luego por días desc). */
+  function personasPrioritarias(limite = 8) {
+    return ausenciasReales().filter(r => r.nivel === 'critical').slice(0, limite);
+  }
+
+  /* Nombres reales en riesgo de volverse crítico (2–4 semanas). */
+  function personasEnAdvertencia(limite = 6) {
+    return ausenciasReales().filter(r => r.nivel === 'warn').slice(0, limite);
+  }
+
+  /* CAUSA #1 — ¿la inasistencia está concentrada en un grupo/
+     liderazgo puntual, o repartida entre varios? Concentrada ⇒
+     probable causa local (horario, actividad paralela, conflicto
+     con ese líder/célula). Repartida ⇒ probable causa general
+     (fecha, feriado, clima) que afectó a varios grupos por igual. */
+  function analizarConcentracionPorGrupo(metricKey) {
+    const subset = (typeof KPIEngine !== 'undefined')
+      ? KPIEngine.getRecordsByMetric(registrosReales(), metricKey)
+      : [];
+    if (subset.length === 0) return null;
+
+    const porGrupo = {};
+    subset.forEach(r => {
+      const g = (r.grupo || '').trim() || 'Sin grupo asignado';
+      porGrupo[g] = (porGrupo[g] || 0) + 1;
+    });
+    const distribucion = Object.entries(porGrupo).sort((a, b) => b[1] - a[1]);
+    const [grupoTop, cantidadTop] = distribucion[0];
+    const pct = Math.round((cantidadTop / subset.length) * 100);
+
+    return { total: subset.length, grupoTop, cantidadTop, pct, gruposDistintos: distribucion.length };
+  }
+
+  /* CAUSA #2 — ¿faltan solo a célula, solo a servicio, o a ambos?
+     Solo servicio ⇒ posible conflicto de horario con el culto.
+     Solo célula ⇒ posible fricción con esa célula/grupo puntual.
+     Ambos ⇒ riesgo real de desconexión/abandono, requiere contacto
+     pastoral directo, no solo administrativo. */
+  function analizarPatronFaltas() {
+    let soloCelula = 0, soloServicio = 0, ambos = 0;
+    registrosReales().forEach(r => {
+      const faltaCelula   = r.celula === 'NO';
+      const faltaServicio = r.servicio === 'NO';
+      if (faltaCelula && faltaServicio) ambos++;
+      else if (faltaCelula) soloCelula++;
+      else if (faltaServicio) soloServicio++;
+    });
+    return { soloCelula, soloServicio, ambos };
+  }
+
+  /* Bloque de texto de informe: título + párrafo explicativo. */
+  function crearBloqueTexto(titulo, texto) {
+    const div = document.createElement('div');
+    div.className = 're-analisis-bloque';
+    div.innerHTML = `<div class="re-analisis-titulo">${titulo}</div><p class="re-analisis-texto">${texto}</p>`;
+    return div;
+  }
+
+  /* Lista de PERSONAS REALES (no comandos, no navegación): nombre,
+     grupo, tiempo exacto sin asistir y, si hay teléfono, el mismo
+     enlace directo de WhatsApp que ya usa el resto del dashboard
+     (TableEngine.waLink) — para que el seguimiento sea accionable
+     sin depender de ningún chat ni IA. */
+  function crearListaPersonas(personas) {
+    const list = document.createElement('ul');
+    list.className = 're-reco-list';
+    personas.forEach(r => {
+      const li = document.createElement('li');
+      li.className = 're-reco-item';
+      const grupoTxt = (r.grupo || '').trim();
+      const contacto = (typeof TableEngine !== 'undefined' && r.telefono) ? TableEngine.waLink(r.telefono) : '';
+      li.innerHTML = `<strong>${r.nombre || 'Sin nombre'}</strong>` +
+        (grupoTxt ? ` · ${grupoTxt}` : '') +
+        ` · sin asistir hace ${r.timeFmt ? r.timeFmt.main : (r.diasAusente + ' días')}` +
+        (contacto ? ` · ${contacto}` : '');
+      list.appendChild(li);
+    });
+    return list;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     RENDER — construcción del contenido del modal
+     ══════════════════════════════════════════════════════════ */
+  function crearCard(label, value, sub) {
+    const div = document.createElement('div');
+    div.className = 're-card';
+    div.innerHTML = `
+      <div class="re-card-label">${label}</div>
+      <div class="re-card-value">${value}</div>
+      ${sub ? `<div class="re-card-sub">${sub}</div>` : ''}
+    `;
+    return div;
+  }
+
+  function crearCardEstado(label, valor, pctTexto, estado) {
+    const div = document.createElement('div');
+    div.className = `re-card re-estado-${estado}`;
+    div.innerHTML = `
+      <div class="re-card-label">${label}</div>
+      <div class="re-card-value">${valor}</div>
+      <div class="re-card-sub">${pctTexto}</div>
+      <div class="re-estado-badge">${ICONO_ESTADO[estado]} ${LABEL_ESTADO[estado]}</div>
+    `;
+    return div;
+  }
+
+  function construirCuerpo(datos) {
+    const body = document.createElement('div');
+    body.className = 're-body';
+
+    /* Aviso de "recalculando" — se muestra arriba de todo y NO
+       bloquea el resto del reporte (algunas secciones pueden estar
+       listas mientras otras aún recalculan). */
+    if (datos.recalculando) {
+      const aviso = document.createElement('div');
+      aviso.className = 're-recalc-notice';
+      aviso.innerHTML = `<i class="bi bi-arrow-repeat"></i> Algunos números se están recalculando — este reporte podría no reflejar aún el estado más reciente.`;
+      body.appendChild(aviso);
+    }
+
+    /* ── 1) Resumen General ── */
+    const secResumen = document.createElement('div');
+    secResumen.className = 're-section';
+    secResumen.innerHTML = `<div class="re-section-title"><i class="bi bi-clipboard-data"></i>Resumen General</div>`;
+    const heroGrid = document.createElement('div');
+    heroGrid.className = 're-hero-grid';
+    heroGrid.appendChild(crearCard('Total Registrados', datos.total));
+    heroGrid.appendChild(crearCard('% Asistencia General', datos.pctGeneral));
+    heroGrid.firstChild.className = 're-hero-card';
+    heroGrid.children[1].className = 're-hero-card';
+    secResumen.appendChild(heroGrid);
+    body.appendChild(secResumen);
+
+    /* ── 2) Desglose de Asistencia ── */
+    const estadoCelula   = clasificar(datos.celulaNOPct);
+    const estadoServicio = clasificar(datos.servicioNOPct);
+    const estadoAmbos    = clasificar(datos.ambosNOPct);
+
+    const secDesglose = document.createElement('div');
+    secDesglose.className = 're-section';
+    secDesglose.innerHTML = `<div class="re-section-title"><i class="bi bi-bar-chart-line"></i>Desglose de Asistencia</div>`;
+    const gridDesglose = document.createElement('div');
+    gridDesglose.className = 're-grid';
+    gridDesglose.appendChild(crearCard('Célula — Asistió', datos.celulaSI, datos.celulaSIPct));
+    gridDesglose.appendChild(crearCardEstado('Célula — Faltó', datos.celulaNO, datos.celulaNOPctTexto, estadoCelula));
+    gridDesglose.appendChild(crearCard('Servicio — Asistió', datos.servicioSI, datos.servicioSIPct));
+    gridDesglose.appendChild(crearCardEstado('Servicio — Faltó', datos.servicioNO, datos.servicioNOPctTexto, estadoServicio));
+    gridDesglose.appendChild(crearCard('Ambos — Asistió', datos.ambosSI, datos.ambosSIPct));
+    gridDesglose.appendChild(crearCardEstado('Ambos — Faltó', datos.ambosNO, datos.ambosNOPctTexto, estadoAmbos));
+    secDesglose.appendChild(gridDesglose);
+    body.appendChild(secDesglose);
+
+    /* ── 3) Nuevos Ingresos ── */
+    const secNuevos = document.createElement('div');
+    secNuevos.className = 're-section';
+    secNuevos.innerHTML = `<div class="re-section-title"><i class="bi bi-person-plus"></i>Nuevos Ingresos</div>`;
+    const gridNuevos = document.createElement('div');
+    gridNuevos.className = 're-grid';
+    gridNuevos.appendChild(crearCard('Nuevos en Célula', datos.nuevosCelula));
+    gridNuevos.appendChild(crearCard('Nuevos en Servicio', datos.nuevosServicio));
+    secNuevos.appendChild(gridNuevos);
+    body.appendChild(secNuevos);
+
+    /* ── 4) Monitor de Ausencias ── */
+    const secAus = document.createElement('div');
+    secAus.className = 're-section';
+    secAus.innerHTML = `<div class="re-section-title"><i class="bi bi-exclamation-diamond"></i>Monitor de Ausencias</div>`;
+    const gridAus = document.createElement('div');
+    gridAus.className = 're-aus-grid';
+    const cNormal = crearCard('Normal', datos.ausNormal); cNormal.className = 're-card re-aus-normal';
+    const cWatch  = crearCard('Seguimiento', datos.ausWatch); cWatch.className = 're-card re-aus-watch';
+    const cWarn   = crearCard('⚠️ Advertencia', datos.ausWarn); cWarn.className = 're-card re-aus-warn';
+    const cCrit   = crearCard('🔴 Crítico', datos.ausCrit); cCrit.className = 're-card re-aus-crit';
+    gridAus.append(cNormal, cWatch, cWarn, cCrit);
+    secAus.appendChild(gridAus);
+    body.appendChild(secAus);
+
+    /* ── 5) Plan de Seguimiento ── */
+    const secPlan = document.createElement('div');
+    secPlan.className = 're-section';
+    secPlan.innerHTML = `<div class="re-section-title"><i class="bi bi-clipboard-check"></i>Plan de Seguimiento</div>`;
+
+    let huboContenido = false;
+
+    /* -- 5.1) Personas: seguimiento inmediato (nivel Crítico) -- */
+    const prioritarios = personasPrioritarias(8);
+    if (prioritarios.length > 0) {
+      huboContenido = true;
+      secPlan.appendChild(crearBloqueTexto(
+        '🔴 Seguimiento inmediato',
+        `${prioritarios.length} persona(s) llevan más de 4 semanas sin asistir ni a célula ni a servicio. Son la prioridad #1 de contacto pastoral esta semana — cuanto más tiempo pasa sin contacto, más difícil es reconectarlas.`
+      ));
+      secPlan.appendChild(crearListaPersonas(prioritarios));
+    }
+
+    /* -- 5.2) Personas: en riesgo de volverse crítico -- */
+    const advertencia = personasEnAdvertencia(6);
+    if (advertencia.length > 0) {
+      huboContenido = true;
+      secPlan.appendChild(crearBloqueTexto(
+        '⚠️ En riesgo — contactar antes de que pase a crítico',
+        `${advertencia.length} persona(s) llevan entre 2 y 4 semanas sin asistir. Todavía están a tiempo de un contacto preventivo (llamada o visita) antes de entrar en la categoría anterior.`
+      ));
+      secPlan.appendChild(crearListaPersonas(advertencia));
+    }
+
+    /* -- 5.3) Causa probable #1: ¿concentrada en un grupo o repartida? -- */
+    const focosCausa = [
+      { metric: 'ambosNO',    nombre: 'la inasistencia a ambos (célula y servicio)' },
+      { metric: 'celulasNO',  nombre: 'la inasistencia a célula' },
+      { metric: 'servicioNO', nombre: 'la inasistencia a servicio' },
+    ];
+    for (const foco of focosCausa) {
+      const c = analizarConcentracionPorGrupo(foco.metric);
+      if (!c || c.total < 3) continue; // muestra insuficiente para sacar una conclusión útil
+      huboContenido = true;
+      const texto = c.pct >= 40
+        ? `${foco.nombre[0].toUpperCase()}${foco.nombre.slice(1)} está concentrada principalmente en <strong>${c.grupoTop}</strong> (${c.cantidadTop} de ${c.total} casos, ${c.pct}%). Esto sugiere una causa puntual de ese grupo — vale la pena conversar con su líder sobre horarios, actividades paralelas o algún conflicto reciente.`
+        : `${foco.nombre[0].toUpperCase()}${foco.nombre.slice(1)} está repartida entre ${c.gruposDistintos} grupos distintos, sin que ninguno concentre más del ${c.pct}% de los casos. Esto sugiere una causa más general (fecha especial, feriado, clima) que un problema de un grupo puntual.`;
+      secPlan.appendChild(crearBloqueTexto('🔎 Causa probable', texto));
+      break; // un solo diagnóstico de concentración es suficiente para no saturar el informe
+    }
+
+    /* -- 5.4) Causa probable #2: patrón célula / servicio / ambos -- */
+    const patron = analizarPatronFaltas();
+    const totalConFalta = patron.soloCelula + patron.soloServicio + patron.ambos;
+    if (totalConFalta > 0) {
+      huboContenido = true;
+      const partes = [];
+      if (patron.ambos > 0)        partes.push(`<strong>${patron.ambos}</strong> faltan a ambos (mayor riesgo de desconexión — requieren contacto pastoral directo, no solo un recordatorio)`);
+      if (patron.soloServicio > 0) partes.push(`<strong>${patron.soloServicio}</strong> faltan solo al servicio (revisar si el horario del culto choca con algo — trabajo, transporte, otro compromiso)`);
+      if (patron.soloCelula > 0)   partes.push(`<strong>${patron.soloCelula}</strong> faltan solo a célula (revisar si hay fricción puntual con ese grupo o su horario)`);
+      secPlan.appendChild(crearBloqueTexto('🧭 Patrón de inasistencia', partes.join('; ') + '.'));
+    }
+
+    /* -- 5.5) Plan de acción — recomendaciones accionables fijas,
+       basadas en lo anterior (no dependen de ningún motor externo
+       ni de IA: son buenas prácticas de seguimiento pastoral). -- */
+    if (huboContenido) {
+      const acciones = document.createElement('ul');
+      acciones.className = 're-reco-list';
+      const items = [
+        'Prioriza el contacto (llamada o visita) con la lista de "Seguimiento inmediato" esta misma semana.',
+        'Para el grupo con mayor concentración de faltas (si lo hay), coordina con su líder una conversación breve sobre posibles causas.',
+        'A quienes faltan solo a servicio, ofréceles alternativas (otro horario de culto, transmisión en vivo) si el problema es de horario.',
+        'A quienes faltan a ambos, prioriza una visita personal antes que un mensaje — es la señal de mayor riesgo de abandono.',
+        'Vuelve a generar este reporte tras el contacto para verificar si las personas listadas se movieron a un nivel de menor riesgo.',
+      ];
+      items.forEach(txt => {
+        const li = document.createElement('li');
+        li.className = 're-reco-item';
+        li.textContent = txt;
+        acciones.appendChild(li);
+      });
+      const tituloAcciones = document.createElement('div');
+      tituloAcciones.className = 're-analisis-titulo';
+      tituloAcciones.textContent = '✅ Plan de acción sugerido';
+      secPlan.appendChild(tituloAcciones);
+      secPlan.appendChild(acciones);
+    } else {
+      const ok = document.createElement('div');
+      ok.className = 're-plan-empty';
+      ok.innerHTML = `✅ <div>No se detectaron personas en riesgo ni patrones de inasistencia relevantes en los datos filtrados actuales. El panorama se ve saludable en general.</div>`;
+      secPlan.appendChild(ok);
+    }
+
+    body.appendChild(secPlan);
+
+    return body;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     OVERLAY — se crea UNA sola vez y se reutiliza (idempotente).
+     Cada apertura RE-RENDERIZA el body con datos frescos del DOM.
+     ══════════════════════════════════════════════════════════ */
+  let overlayEl = null;
+
+  function cerrarModal() {
+    if (overlayEl) overlayEl.classList.remove('re-visible');
+    document.removeEventListener('keydown', onEscape);
+  }
+
+  function onEscape(ev) {
+    if (ev.key === 'Escape') cerrarModal();
+  }
+
+  function crearOverlaySiHaceFalta() {
+    if (overlayEl) return overlayEl;
+
+    overlayEl = document.createElement('div');
+    overlayEl.id = OVERLAY_ID;
+
+    // Clic fuera del modal (en el fondo oscuro) también cierra
+    overlayEl.addEventListener('click', (ev) => {
+      if (ev.target === overlayEl) cerrarModal();
+    });
+
+    document.body.appendChild(overlayEl);
+    return overlayEl;
+  }
+
+  function abrirReporte() {
+    inyectarEstilos();
+    const overlay = crearOverlaySiHaceFalta();
+
+    // Re-construye el modal completo con datos frescos cada vez que
+    // se abre — así el reporte nunca queda "viejo" de una apertura
+    // anterior si el usuario cambió filtros o cargó otro archivo.
+    overlay.innerHTML = '';
+
+    const modal = document.createElement('div');
+    modal.className = 're-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 're-titulo');
+
+    const header = document.createElement('div');
+    header.className = 're-header';
+    header.innerHTML = `
+      <div class="re-header-icon"><i class="bi bi-file-earmark-bar-graph"></i></div>
+      <div class="re-header-text">
+        <h2 id="re-titulo">Reporte Ejecutivo Detallado</h2>
+        <span>${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+      </div>
+      <button type="button" class="re-close" aria-label="Cerrar">&times;</button>
+    `;
+    header.querySelector('.re-close').addEventListener('click', cerrarModal);
+
+    const datos = recolectarDatos();
+    const body = construirCuerpo(datos);
+
+    const footer = document.createElement('div');
+    footer.className = 're-footer';
+    const btnCerrar = document.createElement('button');
+    btnCerrar.type = 'button';
+    btnCerrar.className = 're-footer-btn';
+    btnCerrar.textContent = 'Cerrar';
+    btnCerrar.addEventListener('click', cerrarModal);
+    footer.appendChild(btnCerrar);
+
+    modal.append(header, body, footer);
+    overlay.appendChild(modal);
+
+    overlay.classList.add('re-visible');
+    document.addEventListener('keydown', onEscape);
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     INIT — engancha el botón del menú lateral
+     ══════════════════════════════════════════════════════════ */
+  function init() {
+    document.getElementById(BTN_ID)?.addEventListener('click', () => {
+      // Cierra el offcanvas del menú de forma suave, igual que hacía
+      // la conexión anterior con Sebastián (mismo patrón que el resto
+      // de botones del menú lateral).
+      const menuEl = document.getElementById('sidebarMenu');
+      if (menuEl && window.bootstrap) {
+        window.bootstrap.Offcanvas.getInstance(menuEl)?.hide();
+      }
+      abrirReporte();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

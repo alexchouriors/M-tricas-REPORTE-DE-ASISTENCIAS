@@ -502,6 +502,43 @@ body.desktop-mode .session-info {
 }
 .btn-filter-reset:hover { border-color: var(--brand-blue); color: var(--brand-blue); background: var(--brand-blue-dim); }
 
+/* ── Botón "Análisis con IA" (barra de filtros) ──
+   Invoca a Sebastián IA (ver AiAnalysisButton.js). Mismo tamaño/forma
+   que .btn-filter-reset para quedar prolijo arriba de él, pero con
+   acento dorado — el mismo color que ya usa el ícono flotante de
+   Sebastián (--gold) — para que se identifique de un vistazo como
+   "esto habla con la IA", sin introducir un color nuevo al proyecto. */
+.btn-ia-analysis {
+  background: rgba(240, 180, 41, .12);
+  border: 1px solid rgba(240, 180, 41, .4);
+  color: var(--gold, #f0b429);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  font-size: 12px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease), transform .1s ease;
+  display: flex; align-items: center; justify-content: center;
+}
+.btn-ia-analysis:hover {
+  background: var(--gold, #f0b429);
+  border-color: var(--gold, #f0b429);
+  color: #131118;
+}
+.btn-ia-analysis:active { transform: scale(0.97); }
+
+[data-theme="light"] .btn-ia-analysis {
+  background: rgba(217, 119, 6, .1);
+  border-color: rgba(217, 119, 6, .35);
+  color: #b45309;
+}
+[data-theme="light"] .btn-ia-analysis:hover {
+  background: #b45309;
+  border-color: #b45309;
+  color: #fff;
+}
+
 /* ── KPI SECTION ── */
 .kpi-section { padding-top: 22px; }
 
@@ -672,6 +709,8 @@ body.kpi-modal-open { overflow: hidden; }
 }
 
 .kpi-modal-header {
+  position: relative;
+  z-index: 5;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -697,6 +736,108 @@ body.kpi-modal-open { overflow: hidden; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── Botón desplegable "EXPORTAR LISTA" (junto al título) ── */
+.kpi-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.kpi-modal-title-row .kpi-modal-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.kpi-export-dropdown {
+  position: relative;
+  flex-shrink: 0;
+}
+.kpi-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .2s, color .2s, background .2s;
+}
+.kpi-export-btn:hover,
+.kpi-export-btn.kpi-export-btn-open {
+  color: var(--text-main);
+  border-color: var(--brand-blue);
+}
+.kpi-export-btn.kpi-export-btn-ok {
+  color: #fff;
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+}
+.kpi-export-btn.kpi-export-btn-error {
+  color: var(--text-main);
+  border-color: var(--danger);
+  background: var(--danger-dim);
+}
+.kpi-export-caret {
+  font-size: 10px;
+  transition: transform .2s ease;
+}
+.kpi-export-btn-open .kpi-export-caret {
+  transform: rotate(180deg);
+}
+.kpi-export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  min-width: 250px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
+.kpi-export-menu.d-none { display: none; }
+.kpi-export-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.kpi-export-item i {
+  font-size: 15px;
+  color: var(--text-dim);
+}
+.kpi-export-item:hover {
+  background: var(--bg-card2);
+}
+.kpi-export-item:hover i {
+  color: var(--brand-blue);
+}
+@media (max-width: 480px) {
+  .kpi-export-menu { min-width: 230px; }
+  .kpi-export-btn { padding: 5px 8px; }
 }
 
 .kpi-modal-count {
@@ -1065,7 +1206,7 @@ body.kpi-modal-open { overflow: hidden; }
 .table-search-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start; /* antes: space-between — separaba el "?" del input */
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-light);
   gap: 12px;
@@ -1090,6 +1231,12 @@ body.kpi-modal-open { overflow: hidden; }
   font-size: 12px;
   color: var(--text-muted);
   white-space: nowrap;
+  /* Con justify-content:flex-start en .table-search-bar, este margen
+     es lo único que empuja el contador (y, de paso, todo lo que venga
+     antes de él, como .ausencias-legend) hacia el extremo derecho —
+     mientras el input y el botón "?" quedan pegados a la izquierda,
+     uno justo al lado del otro. */
+  margin-left: auto;
 }
 
 .table-scroll {
@@ -1326,6 +1473,13 @@ body.kpi-modal-open { overflow: hidden; }
   /* Barra de búsqueda: ancho completo, arriba de todo */
   #tabAusencias .table-search {
     width: 100%;
+    order: 1;
+  }
+
+  /* Botón "?": mismo order que la barra de búsqueda, así se mantiene
+     pegado justo a su lado (después de ella, por orden de aparición
+     en el HTML) en vez de saltar al principio de la fila. */
+  #tabAusencias .table-help-btn {
     order: 1;
   }
 
@@ -4871,4 +5025,741 @@ body.desktop-mode .container-fluid {
     filter: none !important;
     transform: none !important;
   }
+}
+
+/* ════════════════════════════════════════════════════════════
+   KPI HELP BUTTON — ícono "?" en la esquina inferior derecha de
+   cada tarjeta KPI, que invoca a Sebastián IA (ver KpiHelpEngine.js
+   y la API pública window.SebastianAI en SebastianAI.js).
+
+   Depende de que el contenedor tenga `position: relative` — ya es
+   el caso de `.kpi-card` (ver arriba), así que no se toca esa regla.
+   ════════════════════════════════════════════════════════════ */
+.kpi-help-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, .16);
+  color: var(--brand-blue, #6366f1);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  z-index: 2; /* por encima del contenido normal de la tarjeta */
+  transition: background .2s ease, color .2s ease, transform .15s ease;
+
+  /* Resplandor sutil en bucle — llama la atención sin ser molesto */
+  animation: kpiHelpGlow 2.4s ease-in-out infinite;
+}
+
+.kpi-help-btn:hover,
+.kpi-help-btn:focus-visible {
+  background: var(--brand-blue, #6366f1);
+  color: #fff;
+  transform: scale(1.12);
+  animation-play-state: paused; /* el glow en bucle se detiene mientras el usuario interactúa */
+  outline: none;
+}
+
+.kpi-help-btn:active {
+  transform: scale(0.96);
+}
+
+/* "Latido" de resplandor: crece/se atenúa el halo alrededor del
+   ícono. Usa box-shadow (no filter/blur pesado) para que sea barato
+   de animar en muchas tarjetas a la vez sin afectar el rendimiento. */
+@keyframes kpiHelpGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, .45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0);
+  }
+}
+
+[data-theme="light"] .kpi-help-btn {
+  background: rgba(79, 70, 229, .12);
+  color: #4f46e5;
+}
+
+[data-theme="light"] .kpi-help-btn:hover,
+[data-theme="light"] .kpi-help-btn:focus-visible {
+  background: #4f46e5;
+  color: #fff;
+}
+
+/* Respeta la preferencia del sistema de reducir animaciones */
+@media (prefers-reduced-motion: reduce) {
+  .kpi-help-btn {
+    animation: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   TABLE HELP BUTTON — mismo ícono "?" y misma animación de
+   resplandor que .kpi-help-btn (ver arriba), pero para las barras
+   de búsqueda de Personas / Excluidos / Nuevos / Monitor de
+   Ausencias (ver .table-search-bar en index.html). Invoca a
+   Sebastián IA con el análisis de esa sección — nunca despliega
+   ninguna tabla ni modal por sí mismo (ver KpiHelpEngine.js).
+
+   A diferencia de .kpi-help-btn (absoluto sobre la tarjeta),
+   .table-search-bar ya es un flex row, así que este botón es
+   inline dentro de ese flujo — mismo tamaño/colores/glow, sin
+   position:absolute. */
+.table-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, .16);
+  color: var(--brand-blue, #6366f1);
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: background .2s ease, color .2s ease, transform .15s ease;
+
+  /* Mismo "latido" de resplandor que .kpi-help-btn — llama la
+     atención sin ser molesto. */
+  animation: kpiHelpGlow 2.4s ease-in-out infinite;
+}
+
+.table-help-btn:hover,
+.table-help-btn:focus-visible {
+  background: var(--brand-blue, #6366f1);
+  color: #fff;
+  transform: scale(1.12);
+  animation-play-state: paused;
+  outline: none;
+}
+
+.table-help-btn:active {
+  transform: scale(0.96);
+}
+
+[data-theme="light"] .table-help-btn {
+  background: rgba(79, 70, 229, .12);
+  color: #4f46e5;
+}
+
+[data-theme="light"] .table-help-btn:hover,
+[data-theme="light"] .table-help-btn:focus-visible {
+  background: #4f46e5;
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-help-btn {
+    animation: none;
+  }
+}
+
+/* ============================================================
+   Estilos fusionados desde ReporteEjecutivoEngine.js
+   (antes inyectados vía <style id="reporteEjecutivoStyles">)
+   ============================================================ */
+      #reporteEjecutivoOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483000;
+        display: none;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 40px 16px;
+        overflow-y: auto;
+        background: rgba(5, 4, 8, 0.72);
+        backdrop-filter: blur(4px);
+        font-family: 'Outfit', system-ui, sans-serif;
+      }
+      #reporteEjecutivoOverlay.re-visible { display: flex; }
+
+      .re-modal {
+        width: 100%;
+        max-width: 860px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: 0 20px 60px rgba(0,0,0,.45);
+        animation: re-pop .18s ease;
+        overflow: hidden;
+      }
+      @keyframes re-pop {
+        from { opacity: 0; transform: translateY(10px) scale(.98); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      .re-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 20px 24px;
+        background: linear-gradient(135deg, var(--gold-dim), transparent 70%);
+        border-bottom: 1px solid var(--border);
+      }
+      .re-header-icon {
+        width: 42px; height: 42px;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: var(--radius);
+        background: var(--gold-dim);
+        color: var(--gold);
+        font-size: 20px;
+        flex-shrink: 0;
+      }
+      .re-header-text { flex: 1; min-width: 0; }
+      .re-header-text h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text-main);
+      }
+      .re-header-text span {
+        font-size: 12.5px;
+        color: var(--text-muted);
+      }
+      .re-close {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 22px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: var(--radius-sm);
+        transition: background .15s, color .15s;
+      }
+      .re-close:hover { background: var(--bg-hover); color: var(--text-main); }
+
+      .re-body {
+        padding: 22px 24px 26px;
+        max-height: 72vh;
+        overflow-y: auto;
+      }
+
+      .re-section { margin-bottom: 24px; }
+      .re-section:last-child { margin-bottom: 0; }
+      .re-section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        color: var(--text-muted);
+        margin-bottom: 12px;
+      }
+      .re-section-title i { color: var(--gold); font-size: 14px; }
+
+      /* ── Grillas de tarjetas ── */
+      .re-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+      }
+      .re-card {
+        background: var(--bg-card2);
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius);
+        padding: 14px;
+      }
+      .re-card-label {
+        font-size: 11.5px;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .re-card-value {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text-main);
+      }
+      .re-card-sub {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      /* Resumen general (2 tarjetas grandes, tono dorado) */
+      .re-hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .re-hero-card {
+        background: var(--gold-dim);
+        border: 1px solid rgba(240,180,41,.3);
+        border-radius: var(--radius);
+        padding: 16px;
+        text-align: center;
+      }
+      .re-hero-card .re-card-value { font-size: 30px; color: var(--gold); }
+      .re-hero-card .re-card-label { color: var(--text-main); opacity: .75; }
+
+      /* Desglose con estado (ok/alerta/critico) */
+      .re-estado-ok       { border-left: 3px solid var(--success); }
+      .re-estado-alerta   { border-left: 3px solid var(--warning); }
+      .re-estado-critico  { border-left: 3px solid var(--danger); }
+      .re-estado-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-top: 6px;
+      }
+      .re-estado-ok .re-estado-badge      { color: var(--success); }
+      .re-estado-alerta .re-estado-badge  { color: var(--warning); }
+      .re-estado-critico .re-estado-badge { color: var(--danger); }
+
+      /* Monitor de ausencias */
+      .re-aus-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+      .re-aus-normal .re-card-value { color: var(--success); }
+      .re-aus-watch  .re-card-value { color: var(--info); }
+      .re-aus-warn   .re-card-value { color: var(--warning); }
+      .re-aus-crit   .re-card-value { color: var(--danger); }
+      .re-aus-crit, .re-aus-warn {
+        background: var(--danger-dim);
+        border-color: rgba(244,63,94,.25);
+      }
+      .re-aus-warn { background: var(--warning-dim); border-color: rgba(251,146,60,.25); }
+
+      /* Plan de seguimiento */
+      .re-plan-empty {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px;
+        background: var(--success-dim);
+        border: 1px solid rgba(34,197,94,.25);
+        border-radius: var(--radius);
+        color: var(--text-main);
+        font-size: 13.5px;
+      }
+      .re-plan-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px 14px;
+        background: var(--bg-card2);
+        border: 1px solid var(--border-light);
+        border-left: 3px solid var(--danger);
+        border-radius: var(--radius);
+        margin-bottom: 8px;
+      }
+      .re-plan-item:last-child { margin-bottom: 0; }
+      .re-plan-item-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-main);
+        margin-bottom: 6px;
+      }
+      .re-reco-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .re-reco-item {
+        position: relative;
+        padding-left: 16px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--text-main);
+      }
+      .re-reco-item::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 7px;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--brand-blue, #8b5cf6);
+      }
+
+      .re-analisis-bloque { margin-bottom: 10px; }
+      .re-analisis-bloque:last-child { margin-bottom: 0; }
+      .re-analisis-titulo {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text-main);
+        margin-bottom: 6px;
+      }
+      .re-analisis-texto {
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: var(--text-muted);
+        margin: 0 0 4px;
+      }
+      .re-analisis-texto strong { color: var(--text-main); }
+      .re-reco-item strong { color: var(--text-main); }
+      .re-section .re-reco-list { margin-bottom: 14px; }
+      .re-section .re-reco-list:last-child { margin-bottom: 0; }
+
+      .re-recalc-notice {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 14px;
+        background: var(--info-dim);
+        border: 1px solid rgba(34,211,238,.3);
+        border-radius: var(--radius);
+        color: var(--text-main);
+        font-size: 13px;
+        margin-bottom: 16px;
+      }
+
+      .re-footer {
+        padding: 14px 24px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .re-footer-btn {
+        padding: 8px 16px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        background: var(--bg-card2);
+        color: var(--text-main);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .15s;
+      }
+      .re-footer-btn:hover { background: var(--bg-hover); }
+
+      @media (max-width: 560px) {
+        .re-hero-grid { grid-template-columns: 1fr; }
+        .re-aus-grid  { grid-template-columns: repeat(2, 1fr); }
+      }
+
+/* ============================================================
+   Estilos fusionados desde SebastianAI.js
+   (antes inyectados vía <style id="sebastianAIStyles">)
+   ============================================================ */
+      #sebastianAIFab {
+        position: fixed;
+        bottom: 22px;
+        right: 22px;
+        z-index: 2147483000;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        border: 2px solid var(--gold, #f0b429);
+        background: var(--bg-card, #131118) center/cover no-repeat;
+        box-shadow: var(--shadow, 0 10px 32px rgba(0,0,0,.42));
+        cursor: pointer;
+        padding: 0;
+        /* SIN overflow:hidden aquí a propósito: si el botón recorta su
+           propio contenido, el badge (posicionado en la esquina, fuera
+           del círculo) queda cortado y se ve "dentro" del borde. El
+           recorte circular se mueve a la imagen (ver regla de abajo),
+           así el badge puede sobresalir libremente — igual que el
+           indicador de mensajes no leídos de WhatsApp. */
+        animation: sebIA-breathe 2.6s ease-in-out infinite;
+        transition: transform .15s ease, box-shadow .15s ease;
+      }
+      #sebastianAIFab img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 50%; /* recorte circular movido aquí desde el botón */
+      }
+      #sebastianAIFab:hover {
+        transform: scale(1.08);
+        box-shadow: var(--shadow-lg, 0 20px 56px rgba(0,0,0,.55));
+      }
+      #sebastianAIFab .sebIA-badge {
+        position: absolute;
+        top: -3px;
+        right: -3px;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--danger, #f43f5e);
+        color: #fff;
+        border: 2px solid var(--bg-base, #0b0a10);
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 16px;
+        text-align: center;
+        display: none;
+        animation: sebIA-badge-pop .25s ease;
+      }
+      #sebastianAIFab .sebIA-badge.sebIA-visible { display: block; }
+      @keyframes sebIA-badge-pop {
+        0%   { transform: scale(.4); opacity: 0; }
+        100% { transform: scale(1);  opacity: 1; }
+      }
+      @keyframes sebIA-breathe {
+        0%, 100% { transform: scale(1); }
+        50%      { transform: scale(1.06); }
+      }
+
+      #sebastianAIPanel {
+        position: fixed;
+        bottom: 96px;
+        right: 22px;
+        z-index: 2147483000;
+        width: 340px;
+        max-width: calc(100vw - 32px);
+        height: 460px;
+        max-height: calc(100vh - 140px);
+        display: none;
+        flex-direction: column;
+        background: var(--bg-card, #131118);
+        border: 1px solid var(--border, rgba(255,255,255,.09));
+        border-radius: var(--radius-lg, 16px);
+        box-shadow: var(--shadow-lg, 0 20px 56px rgba(0,0,0,.55));
+        overflow: hidden;
+        font-family: 'Inter', system-ui, sans-serif;
+        opacity: 0;
+        transform: translateY(12px) scale(.98);
+        transition: opacity .18s ease, transform .18s ease;
+      }
+      #sebastianAIPanel.sebIA-open {
+        display: flex;
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .sebIA-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        background: var(--bg-card2, #19161f);
+        border-bottom: 1px solid var(--border, rgba(255,255,255,.09));
+        flex-shrink: 0;
+      }
+      .sebIA-header img {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 1px solid var(--gold, #f0b429);
+      }
+      .sebIA-header-title {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.2;
+        flex: 1;
+        min-width: 0;
+      }
+      .sebIA-header-title strong {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 14px;
+        color: var(--text-main, #f3f1f8);
+      }
+      .sebIA-header-title span {
+        font-size: 11px;
+        color: var(--success, #22c55e);
+      }
+      .sebIA-close {
+        background: none;
+        border: none;
+        color: var(--text-muted, #726d80);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: var(--radius-sm, 7px);
+      }
+      .sebIA-close:hover {
+        color: var(--text-main, #f3f1f8);
+        background: var(--bg-hover, #201c29);
+      }
+
+      .sebIA-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: auto; /* empuja el grupo de íconos al extremo derecho del header */
+      }
+      .sebIA-icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        background: none;
+        border: none;
+        color: var(--text-muted, #726d80);
+        cursor: pointer;
+        padding: 5px;
+        border-radius: var(--radius-sm, 7px);
+        transition: background .15s ease, color .15s ease;
+      }
+      .sebIA-icon-btn svg {
+        width: 100%;
+        height: 100%;
+      }
+      .sebIA-icon-btn:hover {
+        color: var(--text-main, #f3f1f8);
+        background: var(--bg-hover, #201c29);
+      }
+      .sebIA-icon-btn.sebIA-voice-on {
+        color: var(--gold, #f0b429);
+      }
+      .sebIA-icon-btn.sebIA-voice-on:hover {
+        background: var(--gold-dim, rgba(240,180,41,.15));
+      }
+
+      .sebIA-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .sebIA-msg {
+        max-width: 86%;
+        padding: 8px 11px;
+        border-radius: var(--radius, 10px);
+        font-size: 12.5px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .sebIA-msg.bot {
+        align-self: flex-start;
+        background: var(--bg-card2, #19161f);
+        color: var(--text-main, #f3f1f8);
+        border: 1px solid var(--border-light, rgba(255,255,255,.055));
+        border-bottom-left-radius: 3px;
+      }
+      .sebIA-msg.user {
+        align-self: flex-end;
+        background: var(--brand-blue, #8b5cf6);
+        color: #fff;
+        border-bottom-right-radius: 3px;
+      }
+
+      .sebIA-cmd-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 2px;
+      }
+      .sebIA-cmd-chip {
+        text-align: left;
+        background: var(--gold-dim, rgba(240,180,41,.15));
+        color: var(--gold, #f0b429);
+        border: 1px solid var(--gold-dim, rgba(240,180,41,.15));
+        border-radius: var(--radius-sm, 7px);
+        padding: 6px 9px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .15s ease;
+      }
+      .sebIA-cmd-chip:hover {
+        background: var(--gold, #f0b429);
+        color: var(--bg-card, #131118);
+      }
+
+      .sebIA-typing {
+        align-self: flex-start;
+        display: flex;
+        gap: 3px;
+        padding: 9px 12px;
+        background: var(--bg-card2, #19161f);
+        border: 1px solid var(--border-light, rgba(255,255,255,.055));
+        border-radius: var(--radius, 10px);
+        border-bottom-left-radius: 3px;
+      }
+      .sebIA-typing span {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--text-muted, #726d80);
+        animation: sebIA-blink 1.1s infinite ease-in-out;
+      }
+      .sebIA-typing span:nth-child(2) { animation-delay: .15s; }
+      .sebIA-typing span:nth-child(3) { animation-delay: .3s; }
+      @keyframes sebIA-blink {
+        0%, 80%, 100% { opacity: .25; }
+        40%           { opacity: 1; }
+      }
+
+      .sebIA-footer {
+        display: flex;
+        gap: 6px;
+        padding: 10px;
+        border-top: 1px solid var(--border, rgba(255,255,255,.09));
+        background: var(--bg-card2, #19161f);
+        flex-shrink: 0;
+      }
+      .sebIA-input {
+        flex: 1;
+        background: var(--bg-card, #131118);
+        border: 1px solid var(--border, rgba(255,255,255,.09));
+        border-radius: var(--radius-sm, 7px);
+        color: var(--text-main, #f3f1f8);
+        font-size: 12.5px;
+        padding: 8px 10px;
+        outline: none;
+      }
+      .sebIA-input:focus {
+        border-color: var(--gold, #f0b429);
+      }
+      .sebIA-send {
+        background: var(--gold, #f0b429);
+        color: var(--bg-card, #131118);
+        border: none;
+        border-radius: var(--radius-sm, 7px);
+        padding: 0 14px;
+        font-weight: 700;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      .sebIA-send:hover { filter: brightness(1.08); }
+      .sebIA-send:disabled { opacity: .5; cursor: default; }
+
+      @media (max-width: 480px) {
+        #sebastianAIPanel {
+          left: 12px;
+          right: 12px;
+          width: auto;
+          bottom: 88px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #sebastianAIFab { animation: none; }
+        #sebastianAIFab .sebIA-badge { animation: none; }
+        .sebIA-typing span { animation: none; opacity: .6; }
+      }
+
+
+/* ── Botón "EXPORTAR LISTA" en las barras de Excluidos / Monitor de Ausencias ── */
+.table-search-bar .list-export-dropdown {
+  flex-shrink: 0;
+}
+.table-search-bar .kpi-export-btn {
+  padding: 7px 12px;
+}
+.list-export-dropdown .kpi-export-menu {
+  z-index: 3000;
+}
+@media (max-width: 600px) {
+  .table-search-bar { flex-wrap: wrap; }
 }
