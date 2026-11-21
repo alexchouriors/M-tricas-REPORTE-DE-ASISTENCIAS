@@ -1430,6 +1430,71 @@ ${filtro}
 };
 window.ModalEngine = ModalEngine;
 
+const JsonParser = {
+  _str(v){ return (v===null||v===undefined)?'':String(v).trim(); },
+  _date(v){ const m=this._str(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${m[1]}-${m[2]}-${m[3]}`:''; },
+  _validate(obj){ const d=obj&&obj.data; if(!d||!Array.isArray(d.groups)) throw new Error('El JSON no tiene el formato esperado (data.groups).'); return d; },
+  _records(groups,fuente,principal){
+    const out=[];
+    (Array.isArray(groups)?groups:[]).forEach(g=>{
+      const grupo=this._str(g&&g.title)||(principal?'Sin Grupo':'Excluidos');
+      (Array.isArray(g&&g.people)?g.people:[]).forEach((p,i)=>{
+        const nombre=this._str(p&&p.nombre); if(nombre.length<=1) return;
+        const n=parseFloat(p.n);
+        const celula=this._str(p.celula).toUpperCase()||'NO';
+        const servicio=this._str(p.servicio).toUpperCase()||'NO';
+        const estado=this._str(p.estado);
+        const rec={num:(!isNaN(n)&&n>0)?n:i+1,nombre,celula,servicio,estado,grupo,esNuevo:false,fecha:this._date(p.fecha),telefono:this._str(p.tel),fuente};
+        if(principal){ rec.esNuevoCelula=estado.toUpperCase()==='NUEVO'; rec.esNuevoServicio=celula==='NUEVO'; rec.esNuevo=rec.esNuevoCelula||rec.esNuevoServicio; }
+        out.push(rec);
+      });
+    });
+    return out;
+  },
+  _build(obj){ const d=this._validate(obj); const m=d.meta||{}; return {title:this._str(m.titulo),period:this._str(m.periodo),rawMain:this._records(d.groups,'principal',true),rawExcluidos:this._records(d.excluidos,'excluidos',false)}; },
+  _rbac(list){ if(!window.AccessManager){console.error('[JsonParser] AccessManager no disponible — datos bloqueados (fail-closed).');return [];} return window.AccessManager.applyFilter(list,AuditEngine.getUser()); },
+  parse(obj){ const b=this._build(obj); DataStore.reportTitle=[b.title,b.period].filter(Boolean).join(' — '); DataStore.rawMain=this._rbac(b.rawMain); DataStore.rawExcluidos=this._rbac(b.rawExcluidos); DataStore.rawNuevoEx=[]; DataStore.rawAntiguoEx=[]; },
+  parseStandalone(obj){ const b=this._build(obj); return {rawMain:this._rbac(b.rawMain),rawExcluidos:this._rbac(b.rawExcluidos),rawNuevoEx:[]}; },
+};
+window.JsonParser = JsonParser;
+
+/* Carga unificada Excel/JSON desde una Response (Historial, Comparar,
+   Tendencia, Base de Datos, autocarga). El formato se decide por extensión. */
+const FileLoader = {
+  isJson(name) { return /\.json$/i.test(name || ''); },
+  /* Reporte principal: reemplaza DataStore.rawMain/rawExcluidos (RBAC dentro de cada parser). */
+  async parseMain(res, name) {
+    if (this.isJson(name)) {
+      JsonParser.parse(JSON.parse(await res.text()));
+    } else {
+      ExcelParser.parse(await WorkerEngine.parseWorkbookAsync(await res.arrayBuffer()));
+    }
+    /* Archivo remoto: no hay buffer local → evita subir un buffer obsoleto de otro formato. */
+    DataStore.rawBuffer = null;
+    DataStore.rawFormat = null;
+    SaveEngine.disable();
+    CloudEngine.disableUploadBtn();
+  },
+  /* Parseo aislado (tendencia/comparativa): no toca el reporte activo. */
+  async standalone(res, name) {
+    if (this.isJson(name)) return JsonParser.parseStandalone(JSON.parse(await res.text()));
+    return ExcelParser.parseStandalone(await WorkerEngine.parseWorkbookAsync(await res.arrayBuffer()));
+  },
+  /* Fuerza que la extensión coincida con el formato real del buffer en memoria. */
+  fixName(name) {
+    let n = (name || '').trim();
+    const isJson = DataStore.rawFormat === 'json';
+    const hasJson = /\.json$/i.test(n), hasXl = /\.(xlsx|xlsm|xls)$/i.test(n);
+    if (isJson) { if (!hasJson) n = n.replace(/\.(xlsx|xlsm|xls)$/i, '') + '.json'; }
+    else {
+      if (hasJson) n = n.replace(/\.json$/i, '');
+      if (!/\.(xlsx|xlsm|xls)$/i.test(n)) n += ((DataStore.fileName || '').match(/\.(xlsx|xlsm|xls)$/i) || ['.xlsx'])[0];
+    }
+    return n;
+  },
+};
+window.FileLoader = FileLoader;
+
 
 /* ────────────────────────────────────────────────────────────
    LIST EXPORT ENGINE — botón "EXPORTAR LISTA" para las pestañas
@@ -2427,11 +2492,51 @@ const UIController = {
     // Vincula el clic en las tarjetas KPI al modal de detalle de personas
     this.bindKPICardClicks();
 
+    // Menús desplegables de carga (Cargar reporte / Cargar Tendencia)
+    const menus = document.querySelectorAll('.upload-menu');
+    const closeMenus = () => menus.forEach(m => {
+      m.classList.remove('open');
+      m.querySelector('.upload-menu-list')?.classList.add('d-none');
+      m.querySelector('.btn-upload')?.setAttribute('aria-expanded', 'false');
+    });
+    menus.forEach(m => {
+      const trigger = m.querySelector('.btn-upload');
+      const list = m.querySelector('.upload-menu-list');
+      trigger?.addEventListener('click', e => {
+        e.stopPropagation();
+        const willOpen = list.classList.contains('d-none');
+        closeMenus();
+        if (willOpen) {
+          list.classList.remove('d-none');
+          m.classList.add('open');
+          trigger.setAttribute('aria-expanded', 'true');
+        }
+      });
+      list?.querySelectorAll('button[data-target]').forEach(item => {
+        item.addEventListener('click', e => {
+          e.stopPropagation();
+          const input = document.getElementById(item.dataset.target);
+          closeMenus();
+          if (!input) return;
+          if (item.dataset.accept) input.accept = item.dataset.accept; // filtra el selector según la opción
+          input.click();
+        });
+      });
+    });
+    document.addEventListener('click', closeMenus);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
+
     // Cargar archivo
     document.getElementById('fileInput')?.addEventListener('change', e => {
       const file = e.target.files[0];
       if (file) this.loadFile(file);
       e.target.value = ''; // Permite recargar el mismo archivo
+    });
+
+    document.getElementById('fileInputJson')?.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) this.loadJsonFile(file);
+      e.target.value = '';
     });
 
     // Pantalla Completa (solo visible/relevante en móviles — ver style.css).
@@ -2526,6 +2631,32 @@ const UIController = {
     });
   },
 
+  /* Carga y procesa un respaldo JSON (mismo flujo/RBAC que Excel) */
+  async loadJsonFile(file) {
+    this.showLoading(true);
+    DataStore.fileName = file.name;
+    try {
+      const buf = await file.arrayBuffer();
+      const obj = JSON.parse(new TextDecoder().decode(buf));
+      JsonParser.parse(obj);
+      FilterEngine.populate(DataStore.rawMain);
+      this.refresh();
+      this.showDashboard();
+      const ff = document.getElementById('footerFile'); if (ff) ff.textContent = file.name;
+      const rt = document.getElementById('reportTitle'); if (rt) rt.textContent = DataStore.reportTitle || file.name;
+      DataStore.rawBuffer = buf;      // bytes originales → mismo flujo de guardado que Excel
+      DataStore.rawFormat = 'json';
+      CloudEngine.enableUploadBtn(file.name);
+      SaveEngine.enable(file.name);
+      const user = AuditEngine.getUser();
+      if (user) AuditEngine.notify({ action: 'cargar_local', user, fileName: file.name });
+    } catch (err) {
+      alert('Error al leer el JSON:\n' + err.message);
+    } finally {
+      this.showLoading(false);
+    }
+  },
+
   /* Carga y procesa el archivo Excel */
   loadFile(file) {
     this.showLoading(true);
@@ -2545,6 +2676,7 @@ const UIController = {
 
         /* Guarda el buffer en DataStore y habilita el botón de subida */
         DataStore.rawBuffer = e.target.result;
+        DataStore.rawFormat = 'excel';
         CloudEngine.enableUploadBtn(file.name);
         SaveEngine.enable(file.name);
 
@@ -3899,7 +4031,7 @@ const HistoryEngine = {
 
   /* ── Configuración ── */
   GITHUB_API: 'https://api.github.com/repos/alexchouriors/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/contents/REPORTES',
-  VALID_EXTS: ['.xlsx', '.xlsm', '.xls'],
+  VALID_EXTS: ['.xlsx', '.xlsm', '.xls', '.json'],
 
   /* ── Estado interno ── */
   _files:       [],   // Lista de archivos obtenidos de la API
@@ -3931,13 +4063,14 @@ const HistoryEngine = {
 
   /* Obtiene la extensión del nombre de archivo */
   _ext(name) {
-    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls)$/);
+    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls|json)$/);
     return m ? '.' + m[1] : '';
   },
 
   /* Clase de icono según extensión */
   _iconClass(ext) {
-    const map = { '.xlsx': 'bi-file-earmark-spreadsheet history-file-ext-xlsx',
+    const map = { '.json': 'bi-filetype-json history-file-ext-json',
+                  '.xlsx': 'bi-file-earmark-spreadsheet history-file-ext-xlsx',
                   '.xlsm': 'bi-file-earmark-spreadsheet history-file-ext-xlsm',
                   '.xls':  'bi-file-earmark-spreadsheet history-file-ext-xls'  };
     return map[ext] || 'bi-file-earmark';
@@ -3945,7 +4078,7 @@ const HistoryEngine = {
 
   /* Clase de badge según extensión */
   _badgeClass(ext) {
-    const map = { '.xlsx': 'badge-xlsx', '.xlsm': 'badge-xlsm', '.xls': 'badge-xls' };
+    const map = { '.xlsx': 'badge-xlsx', '.xlsm': 'badge-xlsm', '.xls': 'badge-xls', '.json': 'badge-json' };
     return map[ext] || '';
   },
 
@@ -4007,11 +4140,13 @@ const HistoryEngine = {
       const item = document.createElement('div');
       item.className = 'list-group-item d-flex align-items-center justify-content-between flex-wrap gap-2';
       item.dataset.idx = idx;
+      item.dataset.formato = ext.slice(1);
 
       item.innerHTML = `
         <div class="d-flex align-items-center gap-2 text-truncate">
           <i class="bi ${this._iconClass(ext)} text-success fs-5"></i>
           <span class="text-truncate" title="${file.name}">${file.name}</span>
+          <span class="history-badge ${this._badgeClass(ext)}">${ext.slice(1).toUpperCase()}</span>
         </div>
         <div class="d-flex align-items-center gap-2 ms-auto">
           <button type="button" class="btn btn-sm btn-outline-primary btn-cargar-reporte" data-idx="${idx}">
@@ -4105,12 +4240,9 @@ const HistoryEngine = {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`No se pudo descargar el archivo (${res.status}).`);
 
-      const buffer   = await res.arrayBuffer();
-      const workbook = await WorkerEngine.parseWorkbookAsync(buffer); // offload a Web Worker (no bloquea la UI)
-
-      /* Guarda el nombre en DataStore y parsea con ExcelParser existente */
+      /* Guarda el nombre en DataStore y parsea según formato (Excel/JSON) */
       DataStore.fileName = file.name;
-      ExcelParser.parse(workbook);
+      await FileLoader.parseMain(res, file.name);
 
       /* Actualiza filtros, gráficos y dashboard (mismo flujo que carga local) */
       FilterEngine.populate(DataStore.rawMain);
@@ -4220,13 +4352,11 @@ const ComparativaEngine = {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`No se pudo descargar el archivo (${res.status}).`);
 
-      const buffer   = await res.arrayBuffer();
-      const workbook = await WorkerEngine.parseWorkbookAsync(buffer); // offload a Web Worker (no bloquea la UI)
 
       /* Parseo AISLADO — no toca el reporte actualmente cargado.
          Ya viene filtrado por AccessManager.applyFilter() (obligatorio
          y fail-closed, ver ExcelParser.parseStandalone). */
-      const historico = ExcelParser.parseStandalone(workbook);
+      const historico = await FileLoader.standalone(res, file.name);
 
       /* KPIs del reporte ACTUAL — mismos datos que ven las tarjetas en
          pantalla ahora mismo (ya filtrados por RBAC + filtros de UI activos) */
@@ -4435,13 +4565,11 @@ const TrendEngine = {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`No se pudo descargar el archivo (${res.status}).`);
 
-      const buffer   = await res.arrayBuffer();
-      const workbook = await WorkerEngine.parseWorkbookAsync(buffer); // offload a Web Worker (no bloquea la UI)
 
       /* Parseo AISLADO — no toca el reporte actualmente cargado.
          Ya viene filtrado por AccessManager.applyFilter() (obligatorio
          y fail-closed, ver ExcelParser.parseStandalone). */
-      const historico = ExcelParser.parseStandalone(workbook);
+      const historico = await FileLoader.standalone(res, file.name);
 
       /* Única propiedad nueva en DataStore — no se modifica ninguna
          función existente del motor, solo se le agrega este dato. */
@@ -4593,9 +4721,14 @@ const TrendViewEngine = {
     UIController.showLoading(true);
 
     try {
-      const buffer   = await file.arrayBuffer();
-      const workbook = await WorkerEngine.parseWorkbookAsync(buffer); // mismo Web Worker que "Cargar Excel"
-      const parsed   = ExcelParser.parseStandalone(workbook); // parseo aislado, RBAC obligatorio y fail-closed
+      let parsed;
+      if (/\.json$/i.test(file.name) || file.type === 'application/json') {
+        parsed = JsonParser.parseStandalone(JSON.parse(await file.text())); // JSON: parseo aislado, RBAC fail-closed
+      } else {
+        const buffer   = await file.arrayBuffer();
+        const workbook = await WorkerEngine.parseWorkbookAsync(buffer); // mismo Web Worker que "Cargar Excel"
+        parsed = ExcelParser.parseStandalone(workbook); // parseo aislado, RBAC obligatorio y fail-closed
+      }
 
       DataStore.comparisonBaseline = { fileName: file.name, rawMain: parsed.rawMain };
       DataStore.viewingTrend = true;
@@ -4918,7 +5051,7 @@ const CloudEngine = {
     }
 
     /* Asegura extensión válida */
-    const safeName = fileName.trim() || DataStore.fileName;
+    const safeName = FileLoader.fixName(fileName.trim() || DataStore.fileName);
     if (!safeName) { this._setModalError('El nombre del archivo es obligatorio.'); return; }
 
     this._setUploading(true);
@@ -5117,7 +5250,7 @@ const SaveEngine = {
     if (!token) { alert('No hay token de GitHub configurado. Ve a Configuración → Token GitHub.'); return false; }
 
     const buffer = DataStore.rawBuffer;
-    if (!buffer) { alert('No hay un archivo Excel cargado en el Dashboard.'); return false; }
+    if (!buffer) { alert('No hay un archivo cargado localmente en el Dashboard.'); return false; }
 
     try {
       const base64Content = this._bufferToBase64(buffer);
@@ -5180,11 +5313,7 @@ const SaveEngine = {
     if (!user) return;
 
     /* 3) Asegura extensión válida reutilizando la del archivo original si falta */
-    let safeName = newName;
-    if (!/\.(xlsx|xlsm|xls)$/i.test(safeName)) {
-      const origExt = (DataStore.fileName.match(/\.(xlsx|xlsm|xls)$/i) || [])[0] || '.xlsx';
-      safeName += origExt;
-    }
+    const safeName = FileLoader.fixName(newName);
 
     const btn = this._el('btnMenuGuardar');
     const originalHTML = btn ? btn.innerHTML : '';
@@ -5240,14 +5369,14 @@ const SaveEngine = {
 const DeleteEngine = {
 
   GITHUB_API: 'https://api.github.com/repos/alexchouriors/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/contents/REPORTES',
-  VALID_EXTS: ['.xlsx', '.xlsm', '.xls'],
+  VALID_EXTS: ['.xlsx', '.xlsm', '.xls', '.json'],
 
   _files: [],
 
   _el(id) { return document.getElementById(id); },
 
   _ext(name) {
-    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls)$/);
+    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls|json)$/);
     return m ? '.' + m[1] : '';
   },
 
@@ -5305,7 +5434,7 @@ const DeleteEngine = {
       item.dataset.idx = idx;
       item.innerHTML = `
         <div class="d-flex align-items-center gap-2 text-truncate">
-          <i class="bi bi-file-earmark-spreadsheet text-success fs-5"></i>
+          <i class="bi ${FileLoader.isJson(file.name) ? 'bi-filetype-json' : 'bi-file-earmark-spreadsheet'} text-success fs-5"></i>
           <span class="text-truncate" title="${file.name}">${file.name}</span>
         </div>
         <button type="button" class="btn-delete-file" data-idx="${idx}" title="Eliminar ${file.name}">
@@ -5397,7 +5526,7 @@ const DeleteEngine = {
 const DbDefaultEngine = {
 
   GITHUB_CONTENTS_BASE: 'https://api.github.com/repos/alexchouriors/M-tricas-REPORTE-DE-ASISTENCIAS-NUEVA/contents/',
-  VALID_EXTS: ['.xlsx', '.xlsm', '.xls'],
+  VALID_EXTS: ['.xlsx', '.xlsm', '.xls', '.json'],
 
   _files: [],
   _sessionToken: '',   // Solo en memoria durante la sesión del modal; nunca persistido
@@ -5407,7 +5536,7 @@ const DbDefaultEngine = {
   _el(id) { return document.getElementById(id); },
 
   _ext(name) {
-    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls)$/);
+    const m = name.toLowerCase().match(/\.(xlsx|xlsm|xls|json)$/);
     return m ? '.' + m[1] : '';
   },
 
@@ -5635,8 +5764,9 @@ const DbDefaultEngine = {
       item.dataset.idx = idx;
       item.innerHTML = `
         <div class="d-flex align-items-center gap-2 text-truncate">
-          <i class="bi bi-file-earmark-spreadsheet text-success fs-5"></i>
+          <i class="bi ${FileLoader.isJson(file.name) ? 'bi-filetype-json' : 'bi-file-earmark-spreadsheet'} text-success fs-5"></i>
           <span class="text-truncate" title="${file.name}">${file.name}</span>
+          <span class="history-badge ${FileLoader.isJson(file.name) ? 'badge-json' : 'badge-xlsx'}">${FileLoader.isJson(file.name) ? 'JSON' : 'EXCEL'}</span>
           ${isCurrent ? '<span class="badge-current-default ms-1"><i class="bi bi-star-fill me-1"></i>Predeterminado</span>' : ''}
           ${isTrend ? '<span class="badge-current-trend ms-1"><i class="bi bi-graph-up-arrow me-1"></i>Tendencia</span>' : ''}
         </div>
@@ -6039,11 +6169,8 @@ const AutoLoadEngine = {
       /* 2) Descarga y parsea el Excel */
       const bufRes = await fetch(fileMeta.download_url);
       if (!bufRes.ok) return false;
-      const buffer   = await bufRes.arrayBuffer();
-      const workbook = await WorkerEngine.parseWorkbookAsync(buffer); // offload a Web Worker (no bloquea la UI)
-
       DataStore.fileName = fileName;
-      ExcelParser.parse(workbook);
+      await FileLoader.parseMain(bufRes, fileName);
 
       FilterEngine.populate(DataStore.rawMain);
       UIController.refresh();

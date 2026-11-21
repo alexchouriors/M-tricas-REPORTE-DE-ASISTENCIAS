@@ -178,22 +178,33 @@
       <i class="bi bi-shield-lock" id="authConfigIcon"></i>
     </button>
 
-    <!-- Cargar archivo -->
-    <label class="btn-upload" for="fileInput">
-      <i class="bi bi-upload me-2"></i>Cargar Excel
-    </label>
+    <!-- Cargar reporte (menú: Excel / Json) -->
+    <div class="upload-menu" id="menuCargarReporte">
+      <button type="button" class="btn-upload" aria-haspopup="true" aria-expanded="false">
+        <i class="bi bi-upload me-2"></i>Cargar reporte<i class="bi bi-chevron-down ms-2 upload-menu-caret"></i>
+      </button>
+      <div class="upload-menu-list d-none" role="menu">
+        <button type="button" role="menuitem" data-target="fileInput"><i class="bi bi-file-earmark-spreadsheet-fill"></i>Cargar Excel</button>
+        <button type="button" role="menuitem" data-target="fileInputJson"><i class="bi bi-filetype-json"></i>Cargar Json</button>
+      </div>
+    </div>
     <input type="file" id="fileInput" accept=".xlsx,.xlsm" hidden />
+    <input type="file" id="fileInputJson" accept=".json,application/json" hidden />
 
-    <!-- Cargar Tendencia: reutiliza el mismo pipeline de carga que
-         "Cargar Excel" (WorkerEngine + ExcelParser.parseStandalone),
-         pero en vez de reemplazar el reporte activo, proyecta esa
-         data en la vista principal como "Tendencia" (ver TrendViewEngine
-         en app.js). No destruye rawMain/rawExcluidos: el usuario puede
-         volver con el botón "Salir de Tendencia" del banner de abajo. -->
-    <label class="btn-upload" id="btnCargarTendencia" for="fileInputTrend" title="Ver un Excel como Tendencia, sin perder el reporte actual">
-      <i class="bi bi-graph-up-arrow me-2"></i>Cargar Tendencia
-    </label>
-    <input type="file" id="fileInputTrend" accept=".xlsx,.xlsm" hidden />
+    <!-- Cargar Tendencia (menú: Excel / Json): proyecta el archivo como
+         "Tendencia" sin tocar rawMain/rawExcluidos (ver TrendViewEngine).
+         El id btnCargarTendencia queda en el contenedor para RBAC
+         (Usuario_Rules oculta por id). -->
+    <div class="upload-menu" id="btnCargarTendencia" title="Ver un reporte como Tendencia, sin perder el reporte actual">
+      <button type="button" class="btn-upload" aria-haspopup="true" aria-expanded="false">
+        <i class="bi bi-graph-up-arrow me-2"></i>Cargar Tendencia<i class="bi bi-chevron-down ms-2 upload-menu-caret"></i>
+      </button>
+      <div class="upload-menu-list d-none" role="menu">
+        <button type="button" role="menuitem" data-target="fileInputTrend" data-accept=".xlsx,.xlsm"><i class="bi bi-file-earmark-spreadsheet-fill"></i>Cargar Excel</button>
+        <button type="button" role="menuitem" data-target="fileInputTrend" data-accept=".json,application/json"><i class="bi bi-filetype-json"></i>Cargar Json</button>
+      </div>
+    </div>
+    <input type="file" id="fileInputTrend" accept=".xlsx,.xlsm,.json,application/json" hidden />
 
     <!-- Menú lateral -->
     <button class="btn-history" id="btnMenu" title="Menú"
@@ -360,7 +371,7 @@
         <!-- Estado: vacío -->
         <div id="historyEmpty" class="history-empty d-none">
           <i class="bi bi-folder2-open history-empty-icon"></i>
-          <div class="history-empty-text">No se encontraron archivos Excel en la carpeta REPORTES.</div>
+          <div class="history-empty-text">No se encontraron reportes (Excel o JSON) en la carpeta REPORTES.</div>
         </div>
 
         <!-- Estado: cargando archivo seleccionado -->
@@ -1324,7 +1335,7 @@
         <!-- Estado: vacío -->
         <div id="deleteEmpty" class="history-empty d-none">
           <i class="bi bi-folder2-open history-empty-icon"></i>
-          <div class="history-empty-text">No se encontraron archivos Excel en la carpeta REPORTES.</div>
+          <div class="history-empty-text">No se encontraron reportes (Excel o JSON) en la carpeta REPORTES.</div>
         </div>
 
         <!-- Contenedor de archivos (inyectado vía JS) -->
@@ -1436,7 +1447,7 @@
 
 <!-- ============================================================
      MODAL — BASE DE DATOS (BETA): ARCHIVO PREDETERMINADO
-     Clon visual del modal Eliminar. Lista los .xlsx del repositorio
+     Clon visual del modal Eliminar. Lista los .xlsx/.json del repositorio
      y permite establecer uno como predeterminado (config.json).
 ============================================================ -->
 <div class="modal fade" id="modalDbDefault" tabindex="-1" aria-labelledby="modalDbDefaultLabel" aria-hidden="true">
@@ -1487,7 +1498,7 @@
         <!-- Estado: vacío -->
         <div id="dbDefaultEmpty" class="history-empty d-none">
           <i class="bi bi-folder2-open history-empty-icon"></i>
-          <div class="history-empty-text">No se encontraron archivos Excel en la carpeta REPORTES.</div>
+          <div class="history-empty-text">No se encontraron reportes (Excel o JSON) en la carpeta REPORTES.</div>
         </div>
 
         <!-- Contenedor de archivos (inyectado vía JS) -->
